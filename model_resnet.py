@@ -7,10 +7,10 @@ from keras.backend.tensorflow_backend import set_session
 from keras import regularizers
 from keras import initializers
 
-# config = tf.ConfigProto()
+config = tf.ConfigProto()
 # config.gpu_options.per_process_gpu_memory_fraction = 0.3
-# config.gpu_options.allow_growth = True
-# set_session(tf.Session(config=config))
+config.gpu_options.allow_growth = True
+set_session(tf.Session(config=config))
 
 # WEIGHTS_FILE = '/data/kru03a/chbot/data/model_resnet.h5'
 WEIGHTS_FILE = 'data/model_resnet.h5'
@@ -39,7 +39,7 @@ def residual_block(y, nb_channels, _strides=(1, 1), _project_shortcut=False):
 
     return y
 
-def get_model(outputs):
+def get_model(outputs, gpus=1):
     model = None
     if os.path.isfile(WEIGHTS_FILE) and False:
         model = models.load_model(WEIGHTS_FILE)
@@ -81,7 +81,7 @@ def get_model(outputs):
         if os.path.isfile(WEIGHTS_FILE):
             model.load_weights(WEIGHTS_FILE)
 
-    return model
+    return model, model
 
 def save_model(model):
     model.save(WEIGHTS_FILE)

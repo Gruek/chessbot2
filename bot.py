@@ -10,14 +10,15 @@ import random
 class ChessBot():
     def __init__(self, next_move_chooser='ucb'):
         self.move_encoder = MoveEncoder()
-        self.model = get_model(len(self.move_encoder.moves))
+        gpus = len(device_lib.list_local_devices()) - 1
+        self.model, self.model_template = get_model(len(self.move_encoder.moves), gpus)
         self.cache = dict()
         self.inferences = 0
         self.cache_retrieval = 0
         self.next_move_chooser = next_move_chooser
 
     def save_model(self):
-        save_model(self.model)
+        save_model(self.model_template)
 
     def board_to_input(self, board):
         p1_color = board.turn
@@ -38,19 +39,6 @@ class ChessBot():
         castling_matrix[2:4] = black_castling if p1_color == chess.WHITE else white_castling
         return board_matrix, castling_matrix
 
-    def best_move_old(self, fen, depth=7, chance_limit=0.01):
-        board = chess.Board(fen=fen)
-        moves, value = self.run_network(board, board.turn)
-        best_move = None
-        pov = board.turn
-        for move in moves:
-            board.push_uci(move['move'])
-            move['search_score'] = self.eval_move(board, 1, pov, depth, chance_limit)
-            board.pop()
-            if not best_move or move['search_score'] > best_move['search_score']:
-                best_move = move
-        return best_move
-
     def best_move(self, fen, depth=10, time_limit=10, debug=False):
         board = chess.Board(fen=fen)
         best_move = self.mcts(board, depth, time_limit, debug)
@@ -58,8 +46,7 @@ class ChessBot():
 
     def mcts(self, board, depth, time_limit, debug):
         self.inferences = 0
-        pov = board.turn
-        moves, value = self.run_network(board, pov)
+        moves, value = self.run_network(board)
         simulation_num = 0
         cutoff_time = time.time() + time_limit
 
@@ -88,7 +75,7 @@ class ChessBot():
 
             # simulate game
             board.push_uci(next_move['move'])
-            sample_score = self.simulate_game(board, pov, depth)
+            sample_score = self.simulate_game(board, depth)
             board.pop()
             next_move['total_score'] += sample_score
             next_move['visit_count'] += 1
@@ -104,7 +91,7 @@ class ChessBot():
             return move['score'] + math.sqrt(math.log(simulation_num + 1) / 1) 
         return move['mcts_score'] + 0.5 * math.sqrt(math.log(simulation_num) / move['visit_count'])
 
-    def simulate_game(self, board, pov, depth):
+    def simulate_game(self, board, depth):
         result = board.result()
         if result != '*':
             # end of game
@@ -113,7 +100,7 @@ class ChessBot():
             else:
                 return 1
 
-        moves, value = self.run_network(board, pov)
+        moves, value = self.run_network(board)
         if depth == 0:
             return 1 - value
         
@@ -122,7 +109,7 @@ class ChessBot():
         else:
             next_move = self.choose_next_move_uniformly(moves)
         board.push_uci(next_move['move'])
-        sample_score = self.simulate_game(board, pov, depth-1)
+        sample_score = self.simulate_game(board, depth-1)
         board.pop()
         next_move['total_score'] += sample_score
         next_move['visit_count'] += 1
@@ -166,7 +153,7 @@ class ChessBot():
         valid_moves /= np.sum(valid_moves)
         return valid_moves
 
-    def run_network(self, board, pov):
+    def run_network(self, board):
         fen = board.fen()
         if fen in self.cache:
             self.cache_retrieval += 1
@@ -184,10 +171,10 @@ class ChessBot():
         # run model
         policies, values = self.model.predict([board_inputs, castling_inputs])
 
-        self.cache[fen] = self.format_model_output(policies[0], values[0], board, pov)
+        self.cache[fen] = self.format_model_output(policies[0], values[0], board)
         return self.cache[fen]
 
-    def format_model_output(self, policy, value, board, pov):
+    def format_model_output(self, policy, value, board):
         moves_array = self.validate_moves(board, policy)
         move_scores = []
         for move_index, score in enumerate(moves_array):

@@ -9,6 +9,7 @@ from keras import initializers
 
 # config = tf.ConfigProto()
 # config.gpu_options.per_process_gpu_memory_fraction = 0.3
+# config.gpu_options.allow_growth = True
 # set_session(tf.Session(config=config))
 
 # WEIGHTS_FILE = '/data/kru03a/chbot/data/model_resnet.h5'

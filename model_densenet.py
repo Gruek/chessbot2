@@ -13,7 +13,7 @@ from keras.utils import multi_gpu_model
 # config.gpu_options.per_process_gpu_memory_fraction = 0.3
 # set_session(tf.Session(config=config))
 
-WEIGHTS_FILE = '/data/kru03a/chbot/data/model_densenet.h5'
+WEIGHTS_FILE = '/data/kru03a/chbot/data/model_densenet2.h5'
 WEIGHT_DECAY = 0.000
 
 def conv_block(x, growth_rate, name):
@@ -58,7 +58,7 @@ def transition_block(x, reduction, name):
         output tensor for the block.
     """
     bn_axis = 3 if K.image_data_format() == 'channels_last' else 1
-    # x = layers.BatchNormalization(axis=bn_axis, epsilon=1.001e-5, name=name + '_bn')(x)
+    x = layers.BatchNormalization(axis=bn_axis, epsilon=1.001e-5, name=name + '_bn')(x)
     x = layers.Activation('relu', name=name + '_relu')(x)
     x = layers.Conv2D(int(K.int_shape(x)[bn_axis] * reduction), 1, use_bias=False, name=name + '_conv')(x)
     # x = layers.AveragePooling2D(2, strides=2, name=name + '_pool')(x)

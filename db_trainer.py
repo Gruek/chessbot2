@@ -2,12 +2,14 @@ import chess
 from bot import ChessBot
 import sqlite3
 import numpy as np
+from tensorflow.python.client import device_lib
 
 class DBTrainer():
     def __init__(self):
         self.chbot = ChessBot()
-        self.db_path = '/data/kru03a/chbot/data/moves.db'
-        self.BATCH_SIZE = 512
+        self.db_path = '/data/kru03a/chbot/data/moves_standard.db'
+        gpus = len(device_lib.list_local_devices()) - 1
+        self.BATCH_SIZE = 128 * gpus
 
     def format_data(self, batch):
         inputs1 = np.zeros(shape=(len(batch), 8, 8, 12), dtype=np.int8)
@@ -46,13 +48,15 @@ class DBTrainer():
                 break
             inputs, outputs = self.format_data(batch)
             metrics += self.chbot.model.train_on_batch(inputs, outputs)
-            if iteration % 50 == 0:
+            if iteration % 250 == 0:
                 # test_board = chess.Board()
                 # test_inputs, test_outputs = self.format_data([(test_board.fen(), 'e2e4', 1)])
                 # print(self.chbot.model.predict(test_inputs))
                 print(str(round(iteration / iterations * 100, 2)) + '%', metrics / iterations_metrics, flush=True)
                 metrics = np.zeros(len(self.chbot.model.metrics_names), dtype=np.float)
                 iterations_metrics = 0
+            if iteration % 1000 == 0:
+                self.chbot.save_model()
         db.close()
         self.chbot.save_model()
 
@@ -64,7 +68,7 @@ class DBTrainer():
         iteration = 0
         metrics = np.zeros(len(self.chbot.model.metrics_names), dtype=np.float)
         iterations_metrics = 0
-        cursor.execute('select fen, move, winner from moves_val order by random()')
+        cursor.execute('select fen, move, winner from moves_val order by random() limit 100000')
         while True:
             batch = cursor.fetchmany(self.BATCH_SIZE)
             iteration += 1

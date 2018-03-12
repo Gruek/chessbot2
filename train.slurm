@@ -5,13 +5,13 @@
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=2
 #SBATCH --ntasks-per-node=1
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:2
 #SBATCH --mem=32GB
 
-source /home/kru03a/chessbot/pyenv/bin/activate
+source /home/kru03a/chbot/pyenv/bin/activate
 module load cuda/8.0.61
 module load cudnn/v6
-cd /home/kru03a/chessbot/reinforcement
+cd /home/kru03a/chbot/chbot2
 
 start=`date +%s`
 

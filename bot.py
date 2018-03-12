@@ -1,6 +1,6 @@
 import chess
 import numpy as np
-from model_resnet import get_model, save_model
+from model_densenet import get_model, save_model
 from tensorflow.python.client import device_lib
 from move_encoder import MoveEncoder
 import math

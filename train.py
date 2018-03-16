@@ -1,8 +1,17 @@
 from db_trainer import DBTrainer
+from bot import ChessBot
 
-trainer = DBTrainer()
+chbot = ChessBot()
+trainer_standard = DBTrainer(chbot=chbot)
+trainer_pro = DBTrainer(db_path='/data/kru03a/chbot/data/moves.db', chbot=chbot)
+
 for i in range(30):
-    print('EPOCH #', i)
-    trainer.epoch()
+    print('TEST PRO #', i)
+    trainer_pro.test()
+    print('EPOCH PRO #', i)
+    trainer_pro.epoch()
+
     print('TEST #', i)
-    trainer.test()
+    trainer_standard.test()
+    print('EPOCH #', i)
+    trainer_standard.epoch()

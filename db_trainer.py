@@ -5,9 +5,9 @@ import numpy as np
 from tensorflow.python.client import device_lib
 
 class DBTrainer():
-    def __init__(self):
-        self.chbot = ChessBot()
-        self.db_path = '/data/kru03a/chbot/data/moves_standard.db'
+    def __init__(self, db_path='/data/kru03a/chbot/data/moves_standard.db', chbot=None):
+        self.chbot = chbot or ChessBot()
+        self.db_path = db_path
         gpus = len(device_lib.list_local_devices()) - 1
         self.BATCH_SIZE = 128 * gpus
 
@@ -48,14 +48,14 @@ class DBTrainer():
                 break
             inputs, outputs = self.format_data(batch)
             metrics += self.chbot.model.train_on_batch(inputs, outputs)
-            if iteration % 250 == 0:
+            if iteration % 500 == 0:
                 # test_board = chess.Board()
                 # test_inputs, test_outputs = self.format_data([(test_board.fen(), 'e2e4', 1)])
                 # print(self.chbot.model.predict(test_inputs))
                 print(str(round(iteration / iterations * 100, 2)) + '%', metrics / iterations_metrics, flush=True)
                 metrics = np.zeros(len(self.chbot.model.metrics_names), dtype=np.float)
                 iterations_metrics = 0
-            if iteration % 1000 == 0:
+            if iteration % 2000 == 0:
                 self.chbot.save_model()
         db.close()
         self.chbot.save_model()

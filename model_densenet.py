@@ -9,11 +9,12 @@ from keras import initializers
 from keras import backend as K
 from keras.utils import multi_gpu_model
 
-# config = tf.ConfigProto()
+config = tf.ConfigProto()
 # config.gpu_options.per_process_gpu_memory_fraction = 0.3
-# set_session(tf.Session(config=config))
+config.gpu_options.allow_growth = True
+set_session(tf.Session(config=config))
 
-WEIGHTS_FILE = '/data/kru03a/chbot/data/model_densenet2.h5'
+WEIGHTS_FILE = 'data/model_densenet.h5'
 WEIGHT_DECAY = 0.000
 
 def conv_block(x, growth_rate, name):
@@ -65,52 +66,50 @@ def transition_block(x, reduction, name):
     return x
 
 def get_model(outputs, num_gpus=1):
-    with tf.device('/device:GPU:0' if num_gpus == 1 else '/cpu:0'):
-        if os.path.isfile(WEIGHTS_FILE) and False:
-            model = models.load_model(WEIGHTS_FILE)
-            print('model loaded')
-        else:
-            inp = layers.Input(shape=(8,8,12,))
-            # flat_inp = layers.Flatten()(inp)
-            y = inp
+    # with tf.device('/device:GPU:0' if num_gpus == 1 else '/cpu:0'):
+    if os.path.isfile(WEIGHTS_FILE) and False:
+        model = models.load_model(WEIGHTS_FILE)
+        print('model loaded')
+    else:
+        inp = layers.Input(shape=(8,8,12,))
+        # flat_inp = layers.Flatten()(inp)
+        y = inp
 
-            y = layers.Conv2D(64, 1, use_bias=False, name='conv1/conv')(y)
-            y = layers.Activation('relu', name='conv1/relu')(y)
-            blocks = [6, 12, 48, 32] #densenet201
-            for i, block in enumerate(blocks):
-                print(y.shape)
-                y = dense_block(y, block, name='conv' + str(i + 2))
-                print(y.shape)
-                y = transition_block(y, 0.5, name='pool' + str(i + 2))
-            y = layers.GlobalAveragePooling2D(name='avg_pool')(y)
-            # y = layers.Flatten()(y)
+        y = layers.Conv2D(64, 1, use_bias=False, name='conv1/conv')(y)
+        y = layers.Activation('relu', name='conv1/relu')(y)
+        blocks = [6, 12, 48, 32] #densenet201
+        for i, block in enumerate(blocks):
+            y = dense_block(y, block, name='conv' + str(i + 2))
+            y = transition_block(y, 0.5, name='pool' + str(i + 2))
+        y = layers.GlobalAveragePooling2D(name='avg_pool')(y)
+        # y = layers.Flatten()(y)
 
-            inp2 = layers.Input(shape=(4,))
-            y = layers.concatenate([y, inp2])
-            y = layers.Dense(1024, activation='relu', kernel_regularizer=regularizers.l2(WEIGHT_DECAY))(y)
-            # y = layers.Dropout(0.1)(y)
+        inp2 = layers.Input(shape=(4,))
+        y = layers.concatenate([y, inp2])
+        y = layers.Dense(1024, activation='relu', kernel_regularizer=regularizers.l2(WEIGHT_DECAY))(y)
+        # y = layers.Dropout(0.1)(y)
 
-            # y_policy = layers.Dropout(0.1)(y)
-            y_policy = layers.Dense(1024, activation='relu', kernel_regularizer=regularizers.l2(WEIGHT_DECAY))(y)
-            # y_policy = layers.Dropout(0.1)(y_policy)
-            y_policy = layers.Dense(2048, activation='relu', kernel_regularizer=regularizers.l2(WEIGHT_DECAY))(y_policy)
-            # y_policy = layers.Dropout(0.1)(y_policy)
-            y_policy = layers.Dense(outputs, activation='relu', kernel_regularizer=regularizers.l2(WEIGHT_DECAY))(y_policy)
-            y_policy = layers.Activation("softmax")(y_policy)
+        # y_policy = layers.Dropout(0.1)(y)
+        y_policy = layers.Dense(1024, activation='relu', kernel_regularizer=regularizers.l2(WEIGHT_DECAY))(y)
+        # y_policy = layers.Dropout(0.1)(y_policy)
+        y_policy = layers.Dense(2048, activation='relu', kernel_regularizer=regularizers.l2(WEIGHT_DECAY))(y_policy)
+        # y_policy = layers.Dropout(0.1)(y_policy)
+        y_policy = layers.Dense(outputs, activation='relu', kernel_regularizer=regularizers.l2(WEIGHT_DECAY))(y_policy)
+        y_policy = layers.Activation("softmax")(y_policy)
 
-            # y_value = layers.Dropout(0.1)(y)
-            y_value = layers.Dense(1024, activation='relu', kernel_regularizer=regularizers.l2(WEIGHT_DECAY))(y)
-            # y_value = layers.Dropout(0.1)(y_value)
-            y_value = layers.Dense(2048, activation='relu', kernel_regularizer=regularizers.l2(WEIGHT_DECAY))(y_value)
-            # y_value = layers.Dropout(0.1)(y_value)
-            y_value = layers.Dense(2, activation='relu', kernel_regularizer=regularizers.l2(WEIGHT_DECAY))(y_value)
-            y_value = layers.Activation("softmax")(y_value)
+        # y_value = layers.Dropout(0.1)(y)
+        y_value = layers.Dense(1024, activation='relu', kernel_regularizer=regularizers.l2(WEIGHT_DECAY))(y)
+        # y_value = layers.Dropout(0.1)(y_value)
+        y_value = layers.Dense(2048, activation='relu', kernel_regularizer=regularizers.l2(WEIGHT_DECAY))(y_value)
+        # y_value = layers.Dropout(0.1)(y_value)
+        y_value = layers.Dense(2, activation='relu', kernel_regularizer=regularizers.l2(WEIGHT_DECAY))(y_value)
+        y_value = layers.Activation("softmax")(y_value)
 
-            model = models.Model(inputs=[inp, inp2], outputs=[y_policy, y_value])
-            # model.summary()
+        model = models.Model(inputs=[inp, inp2], outputs=[y_policy, y_value])
+        # model.summary()
 
-            if os.path.isfile(WEIGHTS_FILE):
-                model.load_weights(WEIGHTS_FILE)
+        if os.path.isfile(WEIGHTS_FILE):
+            model.load_weights(WEIGHTS_FILE)
 
     if num_gpus > 1:
         compiled_model = multi_gpu_model(model, gpus=num_gpus)

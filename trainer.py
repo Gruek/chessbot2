@@ -8,7 +8,7 @@ class Trainer():
     def __init__(self):
         self.chbot = ChessBot()
 
-    def play_vs_stockfish(self, fish, think_time=60):
+    def play_vs_stockfish(self, fish, think_time=30):
         self.chbot.clear_cache()
         board = chess.Board()
         fish.newgame()
@@ -19,7 +19,7 @@ class Trainer():
                 fish.setfenposition(board.fen())
                 board.push_uci(fish.bestmove()['move'])
             else:
-                move = self.chbot.best_move(board.fen(), time_limit=think_time)
+                move = self.chbot.best_move(board, time_limit=think_time)
                 board.push_uci(move['move'])
         
         result = board.result()
@@ -61,7 +61,8 @@ class Trainer():
             outputs_move[i][move_index] = 1
             outputs_value[i] = [1, 0] if winner == board.turn else [0, 1]
             i += 1
-        self.chbot.model.train_on_batch([inputs_board_state, inputs_castling], [outputs_move, outputs_value])
+        # self.chbot.model.train_on_batch([inputs_board_state, inputs_castling], [outputs_move, outputs_value])
+        self.chbot.model.fit([inputs_board_state, inputs_castling], [outputs_move, outputs_value], verbose=1, batch_size=32)
         self.chbot.save_model()
         
     

@@ -84,10 +84,10 @@ class ChessBot():
                 sorted_moves = sorted(moves, key=lambda x: x['mcts_score'], reverse=True)
                 # end early if confident enough
                 best_move_lower_bound = self.calc_ucb(sorted_moves[0], simulation_num, multiplier=-1)
-                other_move_upper_bound = 0
+                other_move_upper_bound = None
                 for move in sorted_moves[1:]:
                     ucb = self.calc_ucb(move, simulation_num, multiplier=0.7)
-                    if ucb > other_move_upper_bound:
+                    if other_move_upper_bound == None or ucb > other_move_upper_bound:
                         other_move_upper_bound = ucb
                 if debug:
                     print('total simulations:', simulation_num, 'depth:', depth)
@@ -159,7 +159,7 @@ class ChessBot():
         best_score = None
         best_move_weight = 0
         for move in moves:
-            if not best_score or move['mcts_score'] > best_score:
+            if best_score == None or move['mcts_score'] > best_score:
                 best_score = move['mcts_score']
                 best_move_weight = move['visit_count'] / (move['visit_count'] + next_move['visit_count'])
             # if move['mcts_score'] > sample_score:
@@ -174,7 +174,7 @@ class ChessBot():
         max_ucb = None
         for move in moves:
             ucb = self.calc_ucb(move, total_simulations)
-            if not max_ucb or ucb > max_ucb:
+            if max_ucb == None or ucb > max_ucb:
                 max_ucb = ucb
                 next_move = move
         return next_move

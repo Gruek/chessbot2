@@ -3,12 +3,14 @@ from bot import ChessBot
 import sqlite3
 import numpy as np
 from pystockfish import Engine
+from IPython.display import clear_output
+from IPython.core.display import display
 
 class Trainer():
     def __init__(self):
         self.chbot = ChessBot()
 
-    def play_vs_stockfish(self, fish, think_time=30):
+    def play_vs_stockfish(self, fish, think_time, debug):
         self.chbot.clear_cache()
         board = chess.Board()
         fish.newgame()
@@ -19,9 +21,11 @@ class Trainer():
                 fish.setfenposition(board.fen())
                 board.push_uci(fish.bestmove()['move'])
             else:
-                move = self.chbot.best_move(board, time_limit=think_time)
+                move = self.chbot.best_move(board, time_limit=think_time, depth=7, debug=debug)
                 board.push_uci(move['move'])
-        
+            if debug:
+                display(board)
+        clear_output()
         result = board.result()
         win = 0.5
         if result == '1-0':
@@ -31,11 +35,20 @@ class Trainer():
         print(result, len(board.move_stack), win)
         return board, win
 
-    def train_vs_stockfish(self):
-        shitfish = Engine(depth=0, param={"Threads": 6, "Hash": 512})
+    def train_vs_stockfish(self, debug=False, think_time=30):
+        fish = Engine(depth=20, param={"Threads": 12, "Hash": 1024})
+        wins = 0
+        draws = 0
+        games = 0
         while True:
-            board, win = self.play_vs_stockfish(shitfish)
+            board, win = self.play_vs_stockfish(fish, think_time=think_time, debug=debug)
+            if win == 1:
+                wins += 1
+            elif win == 0.5:
+                draws += 1
+            games += 1
             self.train_from_board(board)
+            print('Wins:', wins, 'Draws:', draws, 'Games:', games)
 
     def train_from_board(self, board):
         result = board.result()

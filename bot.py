@@ -16,9 +16,9 @@ class ChessBot():
         self.inferences = 0
         self.cache_retrieval = 0
         self.explore = 0.3
-        self.init_explore = 0.5
+        self.init_explore = 1.5
         self.max_depth = 35
-        self.same_score_threshold = 0.003
+        self.same_score_threshold = 0.001
 
     def save_model(self):
         save_model(self.model_template)
@@ -64,7 +64,7 @@ class ChessBot():
 
             # stale game search
             if simulation_num > 100:
-                if depth < self.max_depth:
+                if depth < self.max_depth and simulation_num % 10 == 0:
                     if board.halfmove_clock > 15:
                         depth += 1
                     elif next_move['mcts_score'] < 1 and next_move['mcts_score'] > 0.98:
@@ -79,24 +79,6 @@ class ChessBot():
             next_move['mcts_score'] = next_move['total_score'] / next_move['visit_count']
             # next_move['mcts_score'] = sample_score
             simulation_num += 1
-
-            if time.time() > end_early_eval_time:
-                sorted_moves = sorted(moves, key=lambda x: x['mcts_score'], reverse=True)
-                # end early if confident enough
-                best_move_lower_bound = self.calc_ucb(sorted_moves[0], simulation_num, multiplier=-1)
-                other_move_upper_bound = None
-                for move in sorted_moves[1:]:
-                    ucb = self.calc_ucb(move, simulation_num, multiplier=0.7)
-                    if other_move_upper_bound == None or ucb > other_move_upper_bound:
-                        other_move_upper_bound = ucb
-                if debug:
-                    print('total simulations:', simulation_num, 'depth:', depth)
-                    print(sorted_moves[:3])
-                    print('lb:', best_move_lower_bound, 'ub:', other_move_upper_bound)
-                if best_move_lower_bound > other_move_upper_bound:
-                    self.cache[board.fen()] = moves, value
-                    return sorted_moves[0]
-                end_early_eval_time = time.time() + end_early_eval
 
             # out of time
             if time.time() > cutoff_time:
@@ -120,12 +102,30 @@ class ChessBot():
                     return best_moves[0]
                 return sorted_moves[0]
 
+            if time.time() > end_early_eval_time:
+                sorted_moves = sorted(moves, key=lambda x: x['mcts_score'], reverse=True)
+                # end early if confident enough
+                best_move_lower_bound = self.calc_ucb(sorted_moves[0], simulation_num, multiplier=-1)
+                other_move_upper_bound = None
+                for move in sorted_moves[1:]:
+                    ucb = self.calc_ucb(move, simulation_num, multiplier=0.7)
+                    if other_move_upper_bound == None or ucb > other_move_upper_bound:
+                        other_move_upper_bound = ucb
+                if debug:
+                    print('total simulations:', simulation_num, 'depth:', depth)
+                    print(sorted_moves[:3])
+                    print('lb:', best_move_lower_bound, 'ub:', other_move_upper_bound)
+                if best_move_lower_bound > other_move_upper_bound:
+                    self.cache[board.fen()] = moves, value
+                    return sorted_moves[0]
+                end_early_eval_time = time.time() + end_early_eval
+
 
     def calc_ucb(self, move, simulation_num, multiplier=1):
         # calculate upper confidence bound for move
         # https://jeffbradberry.com/posts/2015/09/intro-to-monte-carlo-tree-search/
         if move['visit_count'] == 0:
-            return (2*simulation_num - 1 / (move['score'] + 0.0005)) * multiplier
+            return (self.init_explore * simulation_num - 1 / (move['score'] + 0.0005)) * multiplier
             # return move['score'] + self.init_explore * math.sqrt(math.log(simulation_num + 1) / 1) * multiplier
         return move['mcts_score'] + self.explore * math.sqrt(math.log(simulation_num) / move['visit_count']) * multiplier
 
@@ -157,7 +157,7 @@ class ChessBot():
         self.cache[board.fen()] = moves, value
         
         best_score = None
-        best_move_weight = 0
+        best_move_weight = 1
         for move in moves:
             if best_score == None or move['mcts_score'] > best_score:
                 best_score = move['mcts_score']
@@ -166,7 +166,7 @@ class ChessBot():
             #     better_scores += 1
         # best_move_weight = better_scores / (better_scores + 1)
         avg_score = best_score * best_move_weight + sample_score * (1-best_move_weight)
-        avg_score = avg_score * total_simulations / (total_simulations + 1) + value / (total_simulations + 1)
+        # avg_score = avg_score * total_simulations / (total_simulations + 1) + value / (total_simulations + 1)
         return 1 - avg_score
 
     def choose_next_move(self, moves, total_simulations):

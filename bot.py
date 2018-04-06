@@ -6,6 +6,7 @@ from move_encoder import MoveEncoder
 import math
 import time
 import random
+from node import Node
 
 class ChessBot():
     def __init__(self):
@@ -46,66 +47,37 @@ class ChessBot():
         best_move = self.mcts(board.copy(), depth, time_limit, debug, end_early_eval)
         return best_move
 
-    def mcts(self, board, depth, time_limit, debug, end_early_eval):
+    def mcts(self, board, node, depth, time_limit, debug, eval_freq):
         self.inferences = 0
-        moves, value = self.run_network(board)
-        simulation_num = 0
         cutoff_time = time.time() + time_limit
-        end_early_eval_time = time.time() + end_early_eval
+        eval_time = time.time() + eval_freq
 
-        for move in moves:
-            simulation_num += move['visit_count']
-        if len(moves) == 1:
-            return moves[0]
+        if len(node.child_links) == 1:
+            return list(node.child_links.keys())[0]
 
         while True:
-            # choose which move to explore next
-            next_move = self.choose_next_move(moves, simulation_num)
-
             # stale game search
-            if simulation_num > 100:
-                if depth < self.max_depth and simulation_num % 10 == 0:
+            if node.visits > 100:
+                if depth < self.max_depth and node.visits % 10 == 0:
                     if board.halfmove_clock > 15:
                         depth += 1
-                    elif next_move['mcts_score'] < 1 and next_move['mcts_score'] > 0.98:
+                    elif node.score < 1 and node.score > 0.98:
                         depth += 1
 
             # simulate game
-            board.push_uci(next_move['move'])
-            sample_score = self.simulate_game(board, depth)
-            board.pop()
-            next_move['total_score'] += sample_score
-            next_move['visit_count'] += 1
-            next_move['mcts_score'] = next_move['total_score'] / next_move['visit_count']
-            # next_move['mcts_score'] = sample_score
-            simulation_num += 1
+            self.simulate_game(board, node, depth)
 
             # out of time
             if time.time() > cutoff_time:
-                self.cache[board.fen()] = moves, value
-                sorted_moves = sorted(moves, key=lambda x: x['mcts_score'], reverse=True)
+                break
+
+            if time.time() > eval_time:
+                moves = self.format_moves(node)
                 if debug:
-                    print('total simulations:', simulation_num, 'depth:', depth)
-                    print(sorted_moves[:3])
-
-                best_score = sorted_moves[0]['mcts_score']
-                # if mcts scores are similar then choose move based of model score
-                best_moves = []
-                for move in sorted_moves:
-                    if move['mcts_score'] > best_score - self.same_score_threshold:
-                        best_moves.append(move)
-                best_moves = sorted(best_moves, key=lambda x: x['score'], reverse=True)
-                if best_moves[0] != sorted_moves[0]:
-                    if debug:
-                        print('best move:')
-                        print(best_moves[0])
-                    return best_moves[0]
-                return sorted_moves[0]
-
-            if time.time() > end_early_eval_time:
-                sorted_moves = sorted(moves, key=lambda x: x['mcts_score'], reverse=True)
+                    print('total simulations:', node.visits, 'depth:', depth)
+                    print(moves[:3])
                 # end early if confident enough
-                best_move_lower_bound = self.calc_ucb(sorted_moves[0], simulation_num, multiplier=-1)
+                best_move_lower_bound = self.calc_ucb(moves[0], simulation_num, multiplier=-1)
                 other_move_upper_bound = None
                 for move in sorted_moves[1:]:
                     ucb = self.calc_ucb(move, simulation_num, multiplier=0.7)
@@ -120,72 +92,80 @@ class ChessBot():
                     return sorted_moves[0]
                 end_early_eval_time = time.time() + end_early_eval
 
+        moves = self.format_moves(node)
+        if debug:
+            print('total simulations:', node.visits, 'depth:', depth)
+            print(moves[:3])
 
-    def calc_ucb(self, move, simulation_num, multiplier=1):
-        # calculate upper confidence bound for move
-        # https://jeffbradberry.com/posts/2015/09/intro-to-monte-carlo-tree-search/
-        if move['visit_count'] == 0:
-            return (self.init_explore * simulation_num - 1 / (move['score'] + 0.0005)) * multiplier
-            # return move['score'] + self.init_explore * math.sqrt(math.log(simulation_num + 1) / 1) * multiplier
-        return move['mcts_score'] + self.explore * math.sqrt(math.log(simulation_num) / move['visit_count']) * multiplier
+        best_score = sorted_moves[0]['score']
+        # if mcts scores are similar then choose move based of policy model score
+        best_moves = []
+        for move in sorted_moves:
+            if move['score'] > best_score - self.same_score_threshold:
+                best_moves.append(move)
+        best_moves = sorted(best_moves, key=lambda x: x['weight'], reverse=True)
+        if best_moves[0] != moves[0]:
+            if debug:
+                print('best move:')
+                print(best_moves[0])
+            return best_moves[0]
+        return moves[0]
 
-    def simulate_game(self, board, depth):
-        result = board.result(claim_draw=True)
-        if result != '*':
-            # end of game
-            if result == '1/2-1/2':
-                return 0.5
-            else:
-                return 1.01 + depth / 100
+    def format_moves(self, node):
+        moves = []
+        for uci, link in node.child_links.items():
+            move = {'move': uci, 'score': -1, 'visits': 0, 'weight': link.weight}
+            if link.node:
+                move['score'] = 1 - link.node.score
+                move['visits'] = link.node.visits
+            moves.append(move)
+        moves = sorted(moves, key=lambda x: x['visits'], reverse=True)
 
-        moves, value = self.run_network(board)
+    def simulate_game(self, board, node, depth):
+        if not node.child_links:
+            return
         if depth == 0:
-            return 1 - value
+            return
 
-        total_simulations = 0
-        for move in moves:
-            total_simulations += move['visit_count']
-        next_move = self.choose_next_move(moves, total_simulations)
-        board.push_uci(next_move['move'])
-        sample_score = self.simulate_game(board, depth-1)
+        next_move_uci = self.choose_next_move(node)
+        board.push_uci(next_move_uci)
+        next_move_link = node.child_links[next_move_uci]
+        if next_move_link.node == None:
+            next_move_link.node = self.new_node(board)
+        next_state = next_move_link.node
+        self.simulate_game(board, next_state, depth-1)
+        next_move_score = 1 - next_state.score
         board.pop()
-        next_move['total_score'] += sample_score
-        next_move['visit_count'] += 1
-        next_move['mcts_score'] = next_move['total_score'] / next_move['visit_count']
-        total_simulations += 1
-        # next_move['mcts_score'] = sample_score
-        self.cache[board.fen()] = moves, value
+        node.visits += 1
         
-        best_score = None
-        best_move_weight = 1
-        for move in moves:
-            if best_score == None or move['mcts_score'] > best_score:
-                best_score = move['mcts_score']
-                best_move_weight = move['visit_count'] / (move['visit_count'] + next_move['visit_count'])
-            # if move['mcts_score'] > sample_score:
-            #     better_scores += 1
-        # best_move_weight = better_scores / (better_scores + 1)
-        avg_score = best_score * best_move_weight + sample_score * (1-best_move_weight)
-        # avg_score = avg_score * total_simulations / (total_simulations + 1) + value / (total_simulations + 1)
-        return 1 - avg_score
+        best_state = None
+        for state in node.children():
+            if best_state == None or state.score < best_state.score:
+                best_state = state
+        best_score = 1 - best_state.score
+        best_score_weight = best_state.visits / (best_state.visits + next_state.visits)
 
-    def choose_next_move(self, moves, total_simulations):
+        score_delta = best_score * best_score_weight + (1 - best_score_weight) * next_move_score
+
+        node.score = (node.score * (node.visits-1) + score_delta ) / node.visits
+        # node.score = sample_score
+
+    def choose_next_move(self, node):
         next_move = None
         max_ucb = None
-        for move in moves:
-            ucb = self.calc_ucb(move, total_simulations)
+        for uci, link in node.child_links.items():
+            ucb = self.calc_ucb(link, node.visits)
             if max_ucb == None or ucb > max_ucb:
                 max_ucb = ucb
-                next_move = move
+                next_move = uci
         return next_move
 
-    def choose_next_move_uniformly(self, moves):
-        rand = random.random()
-        running_score = 0
-        for move in moves:
-            running_score += move['score']
-            if running_score >= rand:
-                return move
+    def calc_ucb(self, node_link, simulation_num, multiplier=1):
+        # calculate upper confidence bound for move
+        # https://jeffbradberry.com/posts/2015/09/intro-to-monte-carlo-tree-search/
+        if node_link.node == None:
+            return self.init_explore * simulation_num - 1 / (node_link.weight + 0.0005)
+        return 1 - node_link.node.score + self.explore * math.sqrt(math.log(simulation_num) / (node_link.node.visits + 1)) * multiplier
 
     def validate_moves(self, board, moves_array):
         legal_moves = np.zeros(shape=(len(self.move_encoder.moves),), dtype=np.int8)
@@ -236,3 +216,39 @@ class ChessBot():
 
     def clear_cache(self):
         self.cache = dict()
+
+    def new_node(self, board):
+        result = board.result(claim_draw=True)
+        if result != '*':
+            # end of game
+            score = -0.001
+            if result == '1/2-1/2':
+                score = 0.5
+            node = Node(score)
+            return node
+                
+        self.inferences += 1
+
+        board_inputs = np.zeros(shape=(1, 8, 8, 12), dtype=np.int8)
+        castling_inputs = np.zeros(shape=(1, 4), dtype=np.int8)
+
+        # input
+        board_matrix, castling_matrix = self.board_to_input(board)
+        board_inputs[0] = board_matrix
+        castling_inputs[0] = castling_matrix
+
+        # run model
+        policies, values = self.model.predict([board_inputs, castling_inputs])
+        policy, value = policies[0], values[0]
+        policy = self.validate_moves(board, policy)
+        node_children = []
+        for move_index, weight in enumerate(policy):
+            if weight > 0:
+                node_children.append({
+                    'uci': self.move_encoder.index_to_uci(move_index, board.turn),
+                    'weight': weight
+                })
+        node = Node(value, node_children)
+        return node
+
+

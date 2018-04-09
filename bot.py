@@ -13,13 +13,13 @@ class ChessBot():
         self.move_encoder = MoveEncoder()
         gpus = len(device_lib.list_local_devices()) - 1
         self.model, self.model_template = get_model(len(self.move_encoder.moves), gpus)
-        self.cache = dict()
         self.inferences = 0
-        self.cache_retrieval = 0
         self.explore = 0.3
         self.init_explore = 1.5
         self.max_depth = 35
         self.same_score_threshold = 0.001
+        self.root_node = None
+        self.root_node_id = None
 
     def save_model(self):
         save_model(self.model_template)
@@ -43,12 +43,40 @@ class ChessBot():
         castling_matrix[2:4] = black_castling if p1_color == chess.WHITE else white_castling
         return board_matrix, castling_matrix
 
-    def best_move(self, board, depth=7, time_limit=10, debug=False, end_early_eval=16):
-        best_move = self.mcts(board.copy(), depth, time_limit, debug, end_early_eval)
+    def node_id(self, board):
+        return [move.uci() for move in board.move_stack]
+
+    def best_move(self, board, depth=7, time_limit=10, debug=False, eval_freq=15):
+        b = board.copy()
+        if self.root_node == None:
+            self.root_node_id = self.node_id(b)
+            self.root_node = self.new_node(b)
+        else:
+            # check if board is within root node subtree
+            new_node_id = self.node_id(b)
+            if new_node_id[:len(self.root_node_id)] != self.root_node_id:
+                self.root_node_id = new_node_id
+                self.root_node = self.new_node(b)
+                if debug:
+                    print('New game detected')
+            else:
+                new_node = self.root_node.traverse(new_node_id[len(self.root_node_id):])
+                if debug:
+                    print('Traversing down the tree:')
+                    print(new_node)
+                if new_node == None:
+                    self.root_node_id = new_node_id
+                    self.root_node = self.new_node(b)
+                else:
+                    self.root_node_id = new_node_id
+                    self.root_node = new_node
+
+        best_move = self.mcts(b, depth, time_limit, debug, eval_freq)
         return best_move
 
-    def mcts(self, board, node, depth, time_limit, debug, eval_freq):
+    def mcts(self, board, depth, time_limit, debug, eval_freq):
         self.inferences = 0
+        node = self.root_node
         cutoff_time = time.time() + time_limit
         eval_time = time.time() + eval_freq
 
@@ -72,35 +100,34 @@ class ChessBot():
                 break
 
             if time.time() > eval_time:
-                moves = self.format_moves(node)
-                if debug:
-                    print('total simulations:', node.visits, 'depth:', depth)
-                    print(moves[:3])
+                moves = node.children(include_unvisited=True)
+                moves = sorted(moves, key=lambda x: x['visits'], reverse=True)
                 # end early if confident enough
-                best_move_lower_bound = self.calc_ucb(moves[0], simulation_num, multiplier=-1)
+                best_move_lower_bound = self.calc_ucb(moves[0], node.visits, multiplier=-1)
                 other_move_upper_bound = None
-                for move in sorted_moves[1:]:
-                    ucb = self.calc_ucb(move, simulation_num, multiplier=0.7)
+                for move in moves[1:]:
+                    ucb = self.calc_ucb(move, node.visits, multiplier=0.9)
                     if other_move_upper_bound == None or ucb > other_move_upper_bound:
                         other_move_upper_bound = ucb
                 if debug:
-                    print('total simulations:', simulation_num, 'depth:', depth)
-                    print(sorted_moves[:3])
+                    print('total simulations:', node.visits, 'depth:', depth)
+                    print(moves[:3])
                     print('lb:', best_move_lower_bound, 'ub:', other_move_upper_bound)
                 if best_move_lower_bound > other_move_upper_bound:
-                    self.cache[board.fen()] = moves, value
-                    return sorted_moves[0]
-                end_early_eval_time = time.time() + end_early_eval
+                    return moves[0]
+                eval_time = time.time() + eval_freq
 
-        moves = self.format_moves(node)
+        moves = node.children(include_unvisited=True)
+        moves = sorted(moves, key=lambda x: x['visits'], reverse=True)
+
         if debug:
             print('total simulations:', node.visits, 'depth:', depth)
             print(moves[:3])
 
-        best_score = sorted_moves[0]['score']
+        best_score = moves[0]['score']
         # if mcts scores are similar then choose move based of policy model score
         best_moves = []
-        for move in sorted_moves:
+        for move in moves:
             if move['score'] > best_score - self.same_score_threshold:
                 best_moves.append(move)
         best_moves = sorted(best_moves, key=lambda x: x['weight'], reverse=True)
@@ -110,16 +137,6 @@ class ChessBot():
                 print(best_moves[0])
             return best_moves[0]
         return moves[0]
-
-    def format_moves(self, node):
-        moves = []
-        for uci, link in node.child_links.items():
-            move = {'move': uci, 'score': -1, 'visits': 0, 'weight': link.weight}
-            if link.node:
-                move['score'] = 1 - link.node.score
-                move['visits'] = link.node.visits
-            moves.append(move)
-        moves = sorted(moves, key=lambda x: x['visits'], reverse=True)
 
     def simulate_game(self, board, node, depth):
         if not node.child_links:
@@ -140,10 +157,10 @@ class ChessBot():
         
         best_state = None
         for state in node.children():
-            if best_state == None or state.score < best_state.score:
+            if best_state == None or state['score'] < best_state['score']:
                 best_state = state
-        best_score = 1 - best_state.score
-        best_score_weight = best_state.visits / (best_state.visits + next_state.visits)
+        best_score = 1 - best_state['score']
+        best_score_weight = best_state['visits'] / (best_state['visits'] + next_state.visits)
 
         score_delta = best_score * best_score_weight + (1 - best_score_weight) * next_move_score
 
@@ -161,8 +178,7 @@ class ChessBot():
         return next_move
 
     def calc_ucb(self, node_link, simulation_num, multiplier=1):
-        # calculate upper confidence bound for move
-        # https://jeffbradberry.com/posts/2015/09/intro-to-monte-carlo-tree-search/
+        # calculate confidence bound for move
         if node_link.node == None:
             return self.init_explore * simulation_num - 1 / (node_link.weight + 0.0005)
         return 1 - node_link.node.score + self.explore * math.sqrt(math.log(simulation_num) / (node_link.node.visits + 1)) * multiplier
@@ -176,46 +192,6 @@ class ChessBot():
         valid_moves = np.multiply(legal_moves, moves_array)
         valid_moves /= np.sum(valid_moves)
         return valid_moves
-
-    def run_network(self, board):
-        fen = board.fen()
-        if fen in self.cache:
-            self.cache_retrieval += 1
-            return self.cache[fen]
-        self.inferences += 1
-
-        board_inputs = np.zeros(shape=(1, 8, 8, 12), dtype=np.int8)
-        castling_inputs = np.zeros(shape=(1, 4), dtype=np.int8)
-
-        # input
-        board_matrix, castling_matrix = self.board_to_input(board)
-        board_inputs[0] = board_matrix
-        castling_inputs[0] = castling_matrix
-
-        # run model
-        policies, values = self.model.predict([board_inputs, castling_inputs])
-
-        self.cache[fen] = self.format_model_output(policies[0], values[0], board)
-        return self.cache[fen]
-
-    def format_model_output(self, policy, value, board):
-        moves_array = self.validate_moves(board, policy)
-        move_scores = []
-        for move_index, score in enumerate(moves_array):
-            if score > 0:
-                move_score = {
-                    'move': self.move_encoder.index_to_uci(move_index, board.turn),
-                    'score': score,
-                    'mcts_score': 0,
-                    'total_score': 0,
-                    'visit_count': 0
-                }
-                move_scores.append(move_score)
-        state_score = value[0]
-        return move_scores, state_score
-
-    def clear_cache(self):
-        self.cache = dict()
 
     def new_node(self, board):
         result = board.result(claim_draw=True)
@@ -245,7 +221,7 @@ class ChessBot():
         for move_index, weight in enumerate(policy):
             if weight > 0:
                 node_children.append({
-                    'uci': self.move_encoder.index_to_uci(move_index, board.turn),
+                    'move': self.move_encoder.index_to_uci(move_index, board.turn),
                     'weight': weight
                 })
         node = Node(value, node_children)

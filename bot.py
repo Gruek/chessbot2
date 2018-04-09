@@ -15,8 +15,8 @@ class ChessBot():
         self.cache = dict()
         self.inferences = 0
         self.cache_retrieval = 0
-        self.explore = 0.3
-        self.init_explore = 1.5
+        self.explore = 0.2
+        self.init_explore = 1.2
         self.max_depth = 35
         self.same_score_threshold = 0.001
 
@@ -83,7 +83,7 @@ class ChessBot():
             # out of time
             if time.time() > cutoff_time:
                 self.cache[board.fen()] = moves, value
-                sorted_moves = sorted(moves, key=lambda x: x['mcts_score'], reverse=True)
+                sorted_moves = sorted(moves, key=lambda x: x['visit_count'], reverse=True)
                 if debug:
                     print('total simulations:', simulation_num, 'depth:', depth)
                     print(sorted_moves[:3])
@@ -125,7 +125,7 @@ class ChessBot():
         # calculate upper confidence bound for move
         # https://jeffbradberry.com/posts/2015/09/intro-to-monte-carlo-tree-search/
         if move['visit_count'] == 0:
-            return (self.init_explore * simulation_num - 1 / (move['score'] + 0.0005)) * multiplier
+            return (self.init_explore * simulation_num + 3 - 1 / (move['score'] + 0.0005)) * multiplier
             # return move['score'] + self.init_explore * math.sqrt(math.log(simulation_num + 1) / 1) * multiplier
         return move['mcts_score'] + self.explore * math.sqrt(math.log(simulation_num) / move['visit_count']) * multiplier
 

@@ -36,7 +36,7 @@ class ChessBot():
         eval_time = time.time() + eval_freq
 
         if len(self.game.next_moves()) == 1:
-            return self.game.next_moves()[0]['move']
+            return self.game.next_moves()[0]
 
         node = self.game.node()
         board = self.game.board
@@ -62,9 +62,10 @@ class ChessBot():
                 
                 if debug:
                     print('total simulations:', node.visits, 'depth:', depth)
-                    print(moves[:3])
+                    for m in moves[:3]:
+                        print(m)
 
-                if moves[0]['visits'] > moves[1]['visits'] * 10:
+                if moves[0]['visits'] * (1-moves[0]['score']) > moves[1]['visits'] * (1-moves[1]['score']) * 20:
                     return moves[0]
                 eval_time = time.time() + eval_freq
 
@@ -72,7 +73,8 @@ class ChessBot():
 
         if debug:
             print('total simulations:', node.visits, 'depth:', depth)
-            print(moves[:3])
+            for m in moves[:3]:
+                print(m)
 
         # best_score = moves[0]['score']
         # # if mcts scores are similar then choose move based of policy model score
@@ -116,9 +118,10 @@ class ChessBot():
 
         # score_delta = best_score * best_score_weight + (1 - best_score_weight) * sample_score
 
-        # node.score = (node.score * (node.visits-1) + score_delta ) / node.visits
+        # node.score = (node.score * (node.visits-1) + best_score ) / node.visits
         # node.score = sample_score
         node.score = best_score
+        # node.score = (node.score + best_score) / 2
 
     def choose_next_move(self, node):
         top_weight = 0

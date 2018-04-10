@@ -40,8 +40,8 @@ class Trainer():
         print(result, len(board.move_stack), win)
         return board, win
 
-    def train_vs_stockfish(self, debug=False, think_time=20, depth=8):
-        fish = Engine(depth=20, param={"Threads": 12, "Hash": 1024})
+    def train_vs_stockfish(self, debug=False, think_time=20, depth=6):
+        fish = Engine(depth=20, param={"Threads": 12, "Hash": 64})
         wins = 0
         draws = 0
         games = 0

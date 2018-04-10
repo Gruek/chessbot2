@@ -12,6 +12,7 @@ from keras.utils import multi_gpu_model
 config = tf.ConfigProto()
 # config.gpu_options.per_process_gpu_memory_fraction = 0.3
 config.gpu_options.allow_growth = True
+# config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
 set_session(tf.Session(config=config))
 
 WEIGHTS_FILE = 'data/model_densenet.h5'
@@ -115,7 +116,7 @@ def get_model(outputs, num_gpus=1):
         compiled_model = multi_gpu_model(model, gpus=num_gpus)
     else:
         compiled_model = model
-    compiled_model.compile(optimizer=optimizers.SGD(lr=0.0005, momentum=0.6), loss='categorical_crossentropy', loss_weights=[1., 1.], metrics=['accuracy'])
+    compiled_model.compile(optimizer=optimizers.SGD(lr=0.0001, momentum=0.0), loss='categorical_crossentropy', loss_weights=[1., 1.], metrics=['accuracy'])
 
     return compiled_model, model
 

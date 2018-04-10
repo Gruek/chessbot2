@@ -17,14 +17,14 @@ class Trainer():
         stockfish_color = np.random.randint(2)
         last_score = None
 
-        while not board.is_game_over():
+        while not board.is_game_over(claim_draw=True):
             if board.turn == stockfish_color:
                 fish.setfenposition(board.fen())
                 board.push_uci(fish.bestmove()['move'])
             else:
                 ttt = think_time
                 if last_score:
-                    if last_score > 0.95 or last_score < 0.15:
+                    if last_score > 0.95 or last_score < 0.05:
                         ttt = think_time / 3
                 move = self.chbot.best_move(board, time_limit=ttt, depth=depth, debug=debug)
                 last_score = move['mcts_score']

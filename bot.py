@@ -13,8 +13,8 @@ class ChessBot():
         self.move_encoder = MoveEncoder()
         gpus = len(device_lib.list_local_devices()) - 1
         self.model, self.model_template = get_model(len(self.move_encoder.moves), gpus)
-        self.explore = 0.3
-        self.init_explore = 1.5
+        self.explore = 0.2
+        self.init_explore = 1.2
         self.max_depth = 35
         self.same_score_threshold = 0.001
         self.epsilon = 0.0005

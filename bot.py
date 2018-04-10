@@ -57,7 +57,7 @@ class ChessBot():
                 break
 
             if time.time() > eval_time:
-                moves = sorted(self.game.next_moves(), key=lambda x: (x['visits'], x['score']), reverse=True)
+                moves = sorted(self.game.next_moves(), key=lambda x: x['visits'] * (1-x['score']), reverse=True)
                 # end early if confident enough
                 
                 if debug:
@@ -68,7 +68,7 @@ class ChessBot():
                     return moves[0]
                 eval_time = time.time() + eval_freq
 
-        moves = sorted(self.game.next_moves(), key=lambda x: (x['visits'], x['score']), reverse=True)
+        moves = sorted(self.game.next_moves(), key=lambda x: x['visits'] * (1-x['score']), reverse=True)
 
         if debug:
             print('total simulations:', node.visits, 'depth:', depth)
@@ -99,34 +99,47 @@ class ChessBot():
         self.simulate_game(depth-1)
         sample_node = self.game.node()
         sample_score = 1 - sample_node.score
+        # if checkmate is found, incentivise shortest path to victory
+        if sample_score > 1:
+            sample_score *= 1.01
         self.game.pop()
         
         best_move = None
+        best_confidence_score = None
         for move in node.children():
-            if best_move == None or move['score'] < best_move['score']:
+            conf_score = move['visits'] * (1 - move['score'])
+            if best_move == None or conf_score > best_confidence_score:
                 best_move = move
+                best_confidence_score = conf_score
         best_score = 1 - best_move['score']
-        best_score_weight = best_move['visits'] / (best_move['visits'] + sample_node.visits)
+        # best_score_weight = best_move['visits'] / (best_move['visits'] + sample_node.visits)
 
-        score_delta = best_score * best_score_weight + (1 - best_score_weight) * sample_score
+        # score_delta = best_score * best_score_weight + (1 - best_score_weight) * sample_score
 
-        node.score = (node.score * (node.visits-1) + score_delta ) / node.visits
+        # node.score = (node.score * (node.visits-1) + score_delta ) / node.visits
         # node.score = sample_score
+        node.score = best_score
 
     def choose_next_move(self, node):
+        top_weight = 0
+        for link in node.child_links.values():
+            if link.weight > top_weight:
+                top_weight = link.weight
+        weight_multiplier = 1 / top_weight
         next_move = None
         max_ucb = None
         for uci, link in node.child_links.items():
-            ucb = self.calc_ucb(link, node.visits)
+            ucb = self.calc_ucb(link, node.visits, weight_multiplier=weight_multiplier)
             if max_ucb == None or ucb > max_ucb:
                 max_ucb = ucb
                 next_move = uci
         return next_move
 
-    def calc_ucb(self, node_link, simulation_num, multiplier=1):
-        # calculate confidence bound for move
+    def calc_ucb(self, node_link, simulation_num, multiplier=1, weight_multiplier=1):
         if node_link.node == None:
-            return self.init_explore * simulation_num - 1 / (node_link.weight + self.epsilon)
+            # if node hasn't been explored then use weight to determine when it should be visited
+            return self.init_explore * simulation_num - 1 / (node_link.weight * weight_multiplier + self.epsilon)
+        # otherwise calculate upper confidence bound
         return 1 - node_link.node.score + self.explore * math.sqrt(math.log(simulation_num) / (node_link.node.visits + 1)) * multiplier
 
     def train_from_board(self, board):
@@ -136,8 +149,6 @@ class ChessBot():
             winner = chess.WHITE
         elif result == '0-1':
             winner = chess.BLACK
-        # if winner == 2:
-        #     return
             
         inputs_board_state = np.zeros(shape=(len(board.move_stack), 8, 8, 12), dtype=np.int8)
         inputs_castling = np.zeros(shape=(len(board.move_stack), 4), dtype=np.int8)

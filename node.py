@@ -2,49 +2,58 @@ import chess
 import numpy as np
 from move_encoder import MoveEncoder
 
-class Node():
-    def __init__(self, score, children=[]):
-        self.visits = 0
-        self.score = score
-        self.child_links = {}
-        for child in children:
-            self.child_links[child['move']] = NodeLink(child['weight'])
-
-    def children(self, include_unvisited=False):
-        #flat view of next level children
-        child_nodes = []
-        for move, link in self.child_links.items():
-            child = {'move': move, 'weight': link.weight, 'visits': 0, 'score': -1}
-            if link.node:
-                child['score'] = link.node.score
-                child['visits'] = link.node.visits
-                child_nodes.append(child)
-            elif include_unvisited:
-                child_nodes.append(child)
-        return child_nodes
-
-    def traverse(self, path):
-        if len(path) == 0:
-            return self
-        link = self.child_links[path[0]]
-        if link and link.node:
-            return link.node.traverse(path[1:])
-        return None
-
-class NodeLink():
-    def __init__(self, weight):
-        self.weight = weight
-        self.node = None
-        
 class Game():
-    def __init__(self, model, board):
+    def __init__(self, model, board=None):
         self.model = model
         self.move_encoder = MoveEncoder()
-        self.board = board.copy()
-        self.root_node = self.expand()
-        self.node = self.root_node
+        self.board = None
+        self.root_node_id = None
+        self.node_stack = []
+        if board != None:
+            self.set_position(board)
 
         self.meta_data = {'inferences': 0}
+
+    def set_position(self, board):
+        self.meta_data['inferences'] = 0
+        self.board = board.copy()
+        new_node_id = self.node_id(self.board)
+
+        if self.root() != None and new_node_id[:len(self.root_node_id)] == self.root_node_id:
+            new_node = self.root().traverse(new_node_id[len(self.root_node_id):])
+            if new_node:
+                self.node_stack = [new_node]
+                self.root_node_id = new_node_id
+                return
+
+        self.root_node_id = new_node_id
+        self.node_stack = [self.expand()]
+
+    def push(self, move):
+        self.board.push_uci(move)
+        next_node = self.node_stack[-1].traverse([move])
+        if next_node == None:
+            next_node = self.expand()
+            self.node_stack[-1].child_links[move].node = next_node
+        self.node_stack.append(next_node)
+
+    def pop(self):
+        self.board.pop()
+        self.node_stack = self.node_stack[:-1]
+
+    def root(self):
+        if len(self.node_stack) > 0:
+            return self.node_stack[0]
+        return None
+
+    def node(self):
+        return self.node_stack[-1]
+
+    def score(self):
+        return self.node().score
+
+    def node_id(self, board):
+        return [move.uci() for move in board.move_stack]
 
     def input_matrix(self):
         p1_color = self.board.turn
@@ -97,7 +106,7 @@ class Game():
 
         # run model
         policies, values = self.model.predict([board_inputs, castling_inputs])
-        policy, value = policies[0], values[0]
+        policy, value = policies[0], values[0][0]
         policy = self.validate_moves(policy)
         node_children = []
         for move_index, weight in enumerate(policy):
@@ -108,3 +117,43 @@ class Game():
                 })
         node = Node(value, node_children)
         return node
+
+    def next_moves(self):
+        return self.node().children(include_unvisited=True)
+
+class Node():
+    def __init__(self, score, children=[]):
+        self.visits = 0
+        self.score = score
+        self.child_links = {}
+        for child in children:
+            self.child_links[child['move']] = NodeLink(child['weight'])
+
+    def children(self, include_unvisited=False):
+        #flat view of next level children
+        child_nodes = []
+        for move, link in self.child_links.items():
+            child = {'move': move, 'weight': link.weight, 'visits': 0, 'score': -1}
+            if link.node:
+                child['score'] = link.node.score
+                child['visits'] = link.node.visits
+                child_nodes.append(child)
+            elif include_unvisited:
+                child_nodes.append(child)
+        return child_nodes
+
+    def traverse(self, path):
+        if len(path) == 0:
+            return self
+        link = self.child_links[path[0]]
+        if link and link.node:
+            return link.node.traverse(path[1:])
+        return None
+
+    def __str__(self):
+        return str({'score': self.score, 'visits': self.visits})
+
+class NodeLink():
+    def __init__(self, weight):
+        self.weight = weight
+        self.node = None

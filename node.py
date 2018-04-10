@@ -55,12 +55,12 @@ class Game():
     def node_id(self, board):
         return [move.uci() for move in board.move_stack]
 
-    def input_matrix(self):
-        p1_color = self.board.turn
+    def input_matrix(self, board):
+        p1_color = board.turn
         board_matrix = np.zeros(shape=(8, 8, 12), dtype=np.int8)
         for rank in range(8):
             for file in range(8):
-                piece = self.board.piece_at(rank*8+file)
+                piece = board.piece_at(rank*8+file)
                 if piece:
                     piece_p2 = piece.color != p1_color
                     piece_idx = piece_p2 * 6 + piece.piece_type - 1
@@ -68,8 +68,8 @@ class Game():
                     r = rank if p1_color == chess.WHITE else 7 - rank
                     board_matrix[file][r][piece_idx] = 1
         castling_matrix = np.zeros(shape=(4,), dtype=np.int8)
-        white_castling = [int(bool(self.board.castling_rights & chess.BB_A1)), int(bool(self.board.castling_rights & chess.BB_H1))]
-        black_castling = [int(bool(self.board.castling_rights & chess.BB_A8)), int(bool(self.board.castling_rights & chess.BB_H8))]
+        white_castling = [int(bool(board.castling_rights & chess.BB_A1)), int(bool(board.castling_rights & chess.BB_H1))]
+        black_castling = [int(bool(board.castling_rights & chess.BB_A8)), int(bool(board.castling_rights & chess.BB_H8))]
         castling_matrix[0:2] = white_castling if p1_color == chess.WHITE else black_castling
         castling_matrix[2:4] = black_castling if p1_color == chess.WHITE else white_castling
         return board_matrix, castling_matrix
@@ -100,7 +100,7 @@ class Game():
         castling_inputs = np.zeros(shape=(1, 4), dtype=np.int8)
 
         # input
-        board_matrix, castling_matrix = self.input_matrix()
+        board_matrix, castling_matrix = self.input_matrix(self.board)
         board_inputs[0] = board_matrix
         castling_inputs[0] = castling_matrix
 

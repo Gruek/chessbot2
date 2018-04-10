@@ -128,3 +128,33 @@ class ChessBot():
         if node_link.node == None:
             return self.init_explore * simulation_num - 1 / (node_link.weight + self.epsilon)
         return 1 - node_link.node.score + self.explore * math.sqrt(math.log(simulation_num) / (node_link.node.visits + 1)) * multiplier
+
+    def train_from_board(self, board):
+        result = board.result()
+        winner = 2
+        if result == '1-0':
+            winner = chess.WHITE
+        elif result == '0-1':
+            winner = chess.BLACK
+        # if winner == 2:
+        #     return
+            
+        inputs_board_state = np.zeros(shape=(len(board.move_stack), 8, 8, 12), dtype=np.int8)
+        inputs_castling = np.zeros(shape=(len(board.move_stack), 4), dtype=np.int8)
+        outputs_move = np.zeros(shape=(len(board.move_stack), len(self.game.move_encoder.moves)), dtype=np.int8)
+        outputs_value = np.zeros(shape=(len(board.move_stack), 2), dtype=np.int8)
+        i = 0
+        while len(board.move_stack) > 0:
+            move = board.pop().uci()
+            move_index = self.game.move_encoder.uci_to_index(move, board.turn)
+            board_matrix, castling_matrix = self.game.input_matrix(board)
+            inputs_board_state[i] = board_matrix
+            inputs_castling[i] = castling_matrix
+            outputs_move[i][move_index] = 1
+            outputs_value[i] = [1, 0] if winner == board.turn else [0, 1]
+            if winner == 2:
+                outputs_value[i] = [0.5, 0.5]
+            i += 1
+
+        self.model.fit([inputs_board_state, inputs_castling], [outputs_move, outputs_value], verbose=1, batch_size=32)
+        self.save_model()

@@ -14,7 +14,7 @@ class ChessBot():
         gpus = len(device_lib.list_local_devices()) - 1
         self.model, self.model_template = get_model(len(self.move_encoder.moves), gpus)
         self.explore = 0.3
-        self.init_explore = 1.0
+        self.init_explore = 1
         self.max_depth = 35
         self.same_score_threshold = 0.001
         self.epsilon = 0.0005
@@ -49,6 +49,8 @@ class ChessBot():
                         depth += 1
                     elif node.score < 1 and node.score > 0.98:
                         depth += 1
+                    elif node.score > 0 and node.score < 0.02:
+                        depth += 1
 
             # simulate game
             self.simulate_game(depth)
@@ -71,12 +73,28 @@ class ChessBot():
                 eval_time = time.time() + eval_freq
 
         moves = sorted(self.game.next_moves(), key=lambda x: x['visits'] * (1-x['score']), reverse=True)
+        best_score = 1 - moves[0]['score']
+        visits = moves[0]['visits']
+        best_moves = []
+        for m in moves:
+            m_score = 1 - m['score']
+            if m_score > best_score - self.same_score_threshold and m['visits'] >= visits - 2:
+                best_moves.append(m)
+            else:
+                break
+
+        # if scores are the same choose move based of instinct
+        best_moves.sort(key=lambda x: x['weight'], reverse=True)
+        best_move = best_moves[0]
+        if moves[0] != best_move:
+            print('best move')
+            print(best_move)
 
         if debug:
             print('total simulations:', node.visits, 'depth:', depth)
             for m in moves[:3]:
                 print(m)
-        return moves[0]
+        return best_move
 
     def simulate_game(self, depth):
         node = self.game.node()
@@ -90,23 +108,38 @@ class ChessBot():
         self.game.push(sample_move)
 
         self.simulate_game(depth-1)
-        sample_node = self.game.node()
-        sample_score = 1 - sample_node.score
-        # if checkmate is found, incentivise shortest path to victory
-        if sample_score > 1:
-            sample_score *= 1.01
+        # sample_node = self.game.node()
         self.game.pop()
         
         t1 = time.time()
+        # best_move = None
+        # best_confidence_score = None
+        # for move in node.children():
+        #     conf_score = move['visits'] * (1 - move['score'])
+        #     if best_move == None or conf_score > best_confidence_score:
+        #         best_move = move
+        #         best_confidence_score = conf_score
+        # best_score = 1 - best_move['score']
+        # node.score = best_score
+
         best_move = None
-        best_confidence_score = None
+        most_visited_move = None
         for move in node.children():
-            conf_score = move['visits'] * (1 - move['score'])
-            if best_move == None or conf_score > best_confidence_score:
+            if best_move == None or move['score'] < best_move['score']:
                 best_move = move
-                best_confidence_score = conf_score
-        best_score = 1 - best_move['score']
-        node.score = best_score
+            if most_visited_move == None or move['visits'] > most_visited_move['visits']:
+                most_visited_move = move
+        
+        best_move_score = 1 - best_move['score']
+        most_visited_move_score = 1 - most_visited_move['score']
+        # if checkmate is found, incentivise shortest path to victory
+        if best_move_score > 1 or best_move_score < 0:
+            best_move_score *= 1.01
+        if most_visited_move_score > 1 or most_visited_move_score < 0:
+            most_visited_move_score *= 1.01
+
+        node.score = (best_move['visits'] * best_move_score + most_visited_move['visits'] * most_visited_move_score) / (best_move['visits'] + most_visited_move['visits'])
+
         self.meta_data['backprop_time'] += time.time() - t1
 
     def choose_next_move(self, node):
@@ -124,10 +157,10 @@ class ChessBot():
 
         # evaluate unexplored options
         best_option = None
-        best_option_score = None
+        best_option_score = -1
         for move, link in unexplored_options:
             option_score = self.init_explore * node.visits - 1 / (link.weight * weight_multiplier + self.epsilon)
-            if best_option_score == None or option_score > best_option_score:
+            if option_score > best_option_score:
                 best_option = move
                 best_option_score = option_score
 
@@ -138,10 +171,10 @@ class ChessBot():
         best_option = None
         best_option_score = None
         t1 = time.time()
-        exploration = self.explore * math.sqrt(math.log(node.visits))
+        log = math.log(node.visits)
         self.meta_data['maths_time'] += time.time() - t1
         for move, link in explored_options:
-            option_score = 1 - link.node.score + exploration / (link.node.visits + 1)
+            option_score = 1 - link.node.score + self.explore * math.sqrt(log / (link.node.visits + 1))
             if best_option_score == None or option_score > best_option_score:
                 best_option = move
                 best_option_score = option_score

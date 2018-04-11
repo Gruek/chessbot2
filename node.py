@@ -1,6 +1,7 @@
 import chess
 import numpy as np
 from move_encoder import MoveEncoder
+import time
 
 class Game():
     def __init__(self, model, board=None):
@@ -12,7 +13,9 @@ class Game():
         if board != None:
             self.set_position(board)
 
-        self.meta_data = {'inferences': 0}
+        self.meta_data = {'inferences': 0, 'infer_time': 0, 'check_result_time': 0, 'move_validation_time': 0,
+            'push_time': 0, 'pop_time': 0, 'expand_time': 0, 'input_gen_time': 0, 'move_enumerate': 0, 'node_creation': 0,
+            'move_decoding': 0}
 
     def set_position(self, board):
         self.meta_data['inferences'] = 0
@@ -30,16 +33,24 @@ class Game():
         self.node_stack = [self.expand()]
 
     def push(self, move):
+        t1 = time.time()
         self.board.push_uci(move)
         next_node = self.node_stack[-1].traverse([move])
         if next_node == None:
+            self.meta_data['push_time'] += time.time() - t1
+            expand_t = time.time()
             next_node = self.expand()
+            self.meta_data['expand_time'] += time.time() - expand_t
+            t1 = time.time()
             self.node_stack[-1].child_links[move].node = next_node
         self.node_stack.append(next_node)
+        self.meta_data['push_time'] += time.time() - t1
 
     def pop(self):
+        t1 = time.time()
         self.board.pop()
         self.node_stack = self.node_stack[:-1]
+        self.meta_data['pop_time'] += time.time() - t1
 
     def root(self):
         if len(self.node_stack) > 0:
@@ -85,39 +96,74 @@ class Game():
         return valid_moves
 
     def expand(self):
-        result = self.board.result(claim_draw=True)
-        if result != '*':
+        t1 = time.time()
+        # result = self.board.result(claim_draw=True)
+        # if result != '*':
+        #     # end of game
+        #     score = -0.001
+        #     if result == '1/2-1/2':
+        #         score = 0.5
+        #     node = Node(score)
+        #     return node
+        result = self.result()
+        if result != -1:
             # end of game
             score = -0.001
-            if result == '1/2-1/2':
+            if result == 0.5:
                 score = 0.5
-            node = Node(score)
-            return node
-                
+            return Node(score)
+
+        self.meta_data['check_result_time'] += time.time() - t1
         self.meta_data['inferences'] += 1
 
         board_inputs = np.zeros(shape=(1, 8, 8, 12), dtype=np.int8)
         castling_inputs = np.zeros(shape=(1, 4), dtype=np.int8)
 
         # input
+        t1 = time.time()
         board_matrix, castling_matrix = self.input_matrix(self.board)
+        self.meta_data['input_gen_time'] += time.time() - t1
         board_inputs[0] = board_matrix
         castling_inputs[0] = castling_matrix
 
         # run model
+        t1 = time.time()
         policies, values = self.model.predict([board_inputs, castling_inputs])
+        self.meta_data['infer_time'] += time.time() - t1
         policy, value = policies[0], values[0][0]
+        t1 = time.time()
         policy = self.validate_moves(policy)
+        self.meta_data['move_validation_time'] += time.time() - t1
         node_children = []
+        t1 = time.time()
         for move_index, weight in enumerate(policy):
             if weight > 0:
+                move_decode_t = time.time()
+                move_uci = self.move_encoder.index_to_uci(move_index, self.board.turn)
+                self.meta_data['move_decoding'] += time.time() - move_decode_t
                 node_children.append({
-                    'move': self.move_encoder.index_to_uci(move_index, self.board.turn),
+                    'move': move_uci,
                     'weight': weight
                 })
+        self.meta_data['move_enumerate'] += time.time() - t1
+        t1 = time.time()
         node = Node(value, node_children)
+        self.meta_data['node_creation'] += time.time() - t1
         return node
 
+    def result(self):
+        if self.board.is_checkmate():
+            return 0
+        if self.board.is_stalemate() or self.board.is_insufficient_material() or self.board.can_claim_fifty_moves():
+            return 0.5
+        if len(self.board.move_stack) > 16 and self.board.halfmove_clock >= 6:
+            if self.board.move_stack[-1] == self.board.move_stack[-5]:
+                if self.board.move_stack[-2] == self.board.move_stack[-6]:
+                    # counting repetitions is expensive so do prelim checks
+                    if self.board.can_claim_threefold_repetition():
+                        return 0.5
+        return -1
+        
     def next_moves(self):
         return self.node().children(include_unvisited=True)
 

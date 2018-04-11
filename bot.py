@@ -19,6 +19,7 @@ class ChessBot():
         self.same_score_threshold = 0.001
         self.epsilon = 0.0005
         self.game = Game(self.model)
+        self.meta_data = {'choose_move_time': 0, 'backprop_time': 0}
 
     def save_model(self):
         save_model(self.model_template)
@@ -44,7 +45,7 @@ class ChessBot():
             # stale game search
             if node.visits > 100:
                 if depth < self.max_depth and node.visits % 10 == 0:
-                    if board.halfmove_clock > 15:
+                    if board.halfmove_clock > 10:
                         depth += 1
                     elif node.score < 1 and node.score > 0.98:
                         depth += 1
@@ -75,19 +76,6 @@ class ChessBot():
             print('total simulations:', node.visits, 'depth:', depth)
             for m in moves[:3]:
                 print(m)
-
-        # best_score = moves[0]['score']
-        # # if mcts scores are similar then choose move based of policy model score
-        # best_moves = []
-        # for move in moves:
-        #     if move['score'] > best_score - self.same_score_threshold:
-        #         best_moves.append(move)
-        # best_moves = sorted(best_moves, key=lambda x: x['weight'], reverse=True)
-        # if best_moves[0] != moves[0]:
-        #     if debug:
-        #         print('best move:')
-        #         print(best_moves[0])
-        #     return best_moves[0]
         return moves[0]
 
     def simulate_game(self, depth):
@@ -96,8 +84,11 @@ class ChessBot():
         if len(node.child_links) == 0 or depth == 0:
             return
 
+        t1 = time.time()
         sample_move = self.choose_next_move(node)
+        self.meta_data['choose_move_time'] += time.time() - t1
         self.game.push(sample_move)
+
         self.simulate_game(depth-1)
         sample_node = self.game.node()
         sample_score = 1 - sample_node.score
@@ -106,6 +97,7 @@ class ChessBot():
             sample_score *= 1.01
         self.game.pop()
         
+        t1 = time.time()
         best_move = None
         best_confidence_score = None
         for move in node.children():
@@ -114,14 +106,8 @@ class ChessBot():
                 best_move = move
                 best_confidence_score = conf_score
         best_score = 1 - best_move['score']
-        # best_score_weight = best_move['visits'] / (best_move['visits'] + sample_node.visits)
-
-        # score_delta = best_score * best_score_weight + (1 - best_score_weight) * sample_score
-
-        # node.score = (node.score * (node.visits-1) + best_score ) / node.visits
-        # node.score = sample_score
         node.score = best_score
-        # node.score = (node.score + best_score) / 2
+        self.meta_data['backprop_time'] += time.time() - t1
 
     def choose_next_move(self, node):
         top_weight = 0
@@ -146,7 +132,7 @@ class ChessBot():
         return 1 - node_link.node.score + self.explore * math.sqrt(math.log(simulation_num) / (node_link.node.visits + 1)) * multiplier
 
     def train_from_board(self, board):
-        result = board.result()
+        result = board.result(claim_draw=True)
         winner = 2
         if result == '1-0':
             winner = chess.WHITE

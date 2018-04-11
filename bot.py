@@ -13,13 +13,13 @@ class ChessBot():
         self.move_encoder = MoveEncoder()
         gpus = len(device_lib.list_local_devices()) - 1
         self.model, self.model_template = get_model(len(self.move_encoder.moves), gpus)
-        self.explore = 0.2
-        self.init_explore = 1.2
+        self.explore = 0.3
+        self.init_explore = 1.0
         self.max_depth = 35
         self.same_score_threshold = 0.001
         self.epsilon = 0.0005
         self.game = Game(self.model)
-        self.meta_data = {'choose_move_time': 0, 'backprop_time': 0}
+        self.meta_data = {'choose_move_time': 0, 'backprop_time': 0, 'maths_time': 0}
 
     def save_model(self):
         save_model(self.model_template)
@@ -111,25 +111,41 @@ class ChessBot():
 
     def choose_next_move(self, node):
         top_weight = 0
-        for link in node.child_links.values():
+        unexplored_options = []
+        explored_options = []
+        for move, link in node.child_links.items():
             if link.weight > top_weight:
                 top_weight = link.weight
+            if link.node == None:
+                unexplored_options.append((move, link))
+            else:
+                explored_options.append((move, link))
         weight_multiplier = 1 / top_weight
-        next_move = None
-        max_ucb = None
-        for uci, link in node.child_links.items():
-            ucb = self.calc_ucb(link, node.visits, weight_multiplier=weight_multiplier)
-            if max_ucb == None or ucb > max_ucb:
-                max_ucb = ucb
-                next_move = uci
-        return next_move
 
-    def calc_ucb(self, node_link, simulation_num, multiplier=1, weight_multiplier=1):
-        if node_link.node == None:
-            # if node hasn't been explored then use weight to determine when it should be visited
-            return self.init_explore * simulation_num - 1 / (node_link.weight * weight_multiplier + self.epsilon)
-        # otherwise calculate upper confidence bound
-        return 1 - node_link.node.score + self.explore * math.sqrt(math.log(simulation_num) / (node_link.node.visits + 1)) * multiplier
+        # evaluate unexplored options
+        best_option = None
+        best_option_score = None
+        for move, link in unexplored_options:
+            option_score = self.init_explore * node.visits - 1 / (link.weight * weight_multiplier + self.epsilon)
+            if best_option_score == None or option_score > best_option_score:
+                best_option = move
+                best_option_score = option_score
+
+        if len(explored_options) == 0 or best_option_score > 0:
+            return best_option
+        
+        # evaluate explored options
+        best_option = None
+        best_option_score = None
+        t1 = time.time()
+        exploration = self.explore * math.sqrt(math.log(node.visits))
+        self.meta_data['maths_time'] += time.time() - t1
+        for move, link in explored_options:
+            option_score = 1 - link.node.score + exploration / (link.node.visits + 1)
+            if best_option_score == None or option_score > best_option_score:
+                best_option = move
+                best_option_score = option_score
+        return best_option
 
     def train_from_board(self, board):
         result = board.result(claim_draw=True)

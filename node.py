@@ -14,8 +14,7 @@ class Game():
             self.set_position(board)
 
         self.meta_data = {'inferences': 0, 'infer_time': 0, 'check_result_time': 0, 'move_validation_time': 0,
-            'push_time': 0, 'pop_time': 0, 'expand_time': 0, 'input_gen_time': 0, 'move_enumerate': 0, 'node_creation': 0,
-            'move_decoding': 0}
+            'push_time': 0, 'pop_time': 0, 'expand_time': 0, 'input_gen_time': 0}
 
     def set_position(self, board):
         self.meta_data['inferences'] = 0
@@ -38,9 +37,7 @@ class Game():
         next_node = self.node_stack[-1].traverse([move])
         if next_node == None:
             self.meta_data['push_time'] += time.time() - t1
-            expand_t = time.time()
             next_node = self.expand()
-            self.meta_data['expand_time'] += time.time() - expand_t
             t1 = time.time()
             self.node_stack[-1].child_links[move].node = next_node
         self.node_stack.append(next_node)
@@ -86,25 +83,17 @@ class Game():
         return board_matrix, castling_matrix
 
     def validate_moves(self, moves_array):
-        legal_moves = np.zeros(shape=(len(self.move_encoder.moves),), dtype=np.int8)
+        legal_moves = {}
         for move in self.board.legal_moves:
             uci = move.uci()
             move_index = self.move_encoder.uci_to_index(uci, self.board.turn)
-            legal_moves[move_index] = 1
-        valid_moves = np.multiply(legal_moves, moves_array)
-        valid_moves /= np.sum(valid_moves)
-        return valid_moves
+            weight = moves_array[move_index]
+            legal_moves[uci] = NodeLink(weight)
+        return legal_moves
 
     def expand(self):
+        expand_t1 = time.time()
         t1 = time.time()
-        # result = self.board.result(claim_draw=True)
-        # if result != '*':
-        #     # end of game
-        #     score = -0.001
-        #     if result == '1/2-1/2':
-        #         score = 0.5
-        #     node = Node(score)
-        #     return node
         result = self.result()
         if result != -1:
             # end of game
@@ -132,23 +121,10 @@ class Game():
         self.meta_data['infer_time'] += time.time() - t1
         policy, value = policies[0], values[0][0]
         t1 = time.time()
-        policy = self.validate_moves(policy)
+        node_children = self.validate_moves(policy)
         self.meta_data['move_validation_time'] += time.time() - t1
-        node_children = []
-        t1 = time.time()
-        for move_index, weight in enumerate(policy):
-            if weight > 0:
-                move_decode_t = time.time()
-                move_uci = self.move_encoder.index_to_uci(move_index, self.board.turn)
-                self.meta_data['move_decoding'] += time.time() - move_decode_t
-                node_children.append({
-                    'move': move_uci,
-                    'weight': weight
-                })
-        self.meta_data['move_enumerate'] += time.time() - t1
-        t1 = time.time()
         node = Node(value, node_children)
-        self.meta_data['node_creation'] += time.time() - t1
+        self.meta_data['expand_time'] += time.time() - expand_t1
         return node
 
     def result(self):
@@ -168,12 +144,12 @@ class Game():
         return self.node().children(include_unvisited=True)
 
 class Node():
-    def __init__(self, score, children=[]):
+    def __init__(self, score, children=None):
         self.visits = 0
         self.score = score
         self.child_links = {}
-        for child in children:
-            self.child_links[child['move']] = NodeLink(child['weight'])
+        if children != None:
+            self.child_links = children
 
     def children(self, include_unvisited=False):
         #flat view of next level children

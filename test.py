@@ -1,49 +1,55 @@
 from bot import ChessBot
-import numpy as np
 import chess
-import chess.pgn as pgn
-import tensorflow as tf
-from keras.backend.tensorflow_backend import set_session
-import sqlite3
-from db_trainer import DBTrainer
+import time
+import numpy as np
+import cProfile
 
-config = tf.ConfigProto()
-config.gpu_options.per_process_gpu_memory_fraction = 0.3
-set_session(tf.Session(config=config))
+bot = ChessBot()
+board = chess.Board(fen='r1bqk2r/1p1p1ppp/2n1pb2/p1P5/QPP1n3/P3PN2/R4PPP/1NB1KB1R b Kkq - 2 9')
+bot.game.set_position(board)
+print(board)
 
-trainer = DBTrainer()
-chbot = ChessBot()
-f = '/data/kru03a/chbot/data/ficsgamesdb_2016_standard2000_nomovetimes_1514497.pgn'
-# game = pgn.read_game(open(f))
-# board = game.end().board()
-# board.pop()
-board = chess.Board()
-# print(board)
+def foo():
+    bot.best_move(board, time_limit=10, debug=True)
 
-def make_move():
-    move = chbot.best_move(board.fen())
-    print(move)
-    board.push_uci(move['move'])
-    print(board)
-
-# for i in range(1):
-#     make_move()
-
-print(board.result())
+cProfile.run('foo()')
+# foo()
+print(bot.meta_data)
+print(bot.game.meta_data)
 
 
-db = sqlite3.connect(trainer.db_path)
-cursor = db.cursor()
-cursor.execute('select fen, move, winner from moves_train order by random()')
-batch = cursor.fetchmany(5)
-for game in batch:
-    fen = game[0]
-    move = game[1]
-    winner = game[2]
+# board_inputs = np.zeros(shape=(1, 8, 8, 12), dtype=np.int8)
+# castling_inputs = np.zeros(shape=(1, 4), dtype=np.int8)
 
-    board = chess.Board(fen=fen)
-    print(board)
-    print(move)
-    print(winner, winner == board.turn)
 
-# db.close()
+# # input
+# t1 = time.time()
+# board_matrix, castling_matrix = bot.game.input_matrix(board)
+# board_inputs[0] = board_matrix
+# castling_inputs[0] = castling_matrix
+
+# # run model
+# policies, values = bot.model.predict([board_inputs, castling_inputs])
+# print(time.time() - t1)
+
+
+# t1 = time.time()
+# legal_moves = list(board.legal_moves)
+# moves_num = len(legal_moves)
+# print(moves_num)
+
+# board_inputs = np.zeros(shape=(moves_num, 8, 8, 12), dtype=np.int8)
+# castling_inputs = np.zeros(shape=(moves_num, 4), dtype=np.int8)
+
+
+# # input
+# for i, m in enumerate(legal_moves):
+#     board.push(m)
+#     board_matrix, castling_matrix = bot.game.input_matrix(board)
+#     board_inputs[i] = board_matrix
+#     castling_inputs[i] = castling_matrix
+#     board.pop()
+
+# # run model
+# policies, values = bot.model.predict([board_inputs, castling_inputs], batch_size=64)
+# print(time.time() - t1)

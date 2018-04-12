@@ -19,7 +19,7 @@ class ChessBot():
         self.same_score_threshold = 0.001
         self.epsilon = 0.0005
         self.game = Game(self.model)
-        self.meta_data = {'choose_move_time': 0, 'backprop_time': 0, 'maths_time': 0}
+        self.meta_data = {'choose_move_time': 0, 'backprop_time': 0, 'unexplored_moves': 0, 'explored_moves': 0, 'unexplored_maths': 0}
 
     def save_model(self):
         save_model(self.model_template)
@@ -105,7 +105,7 @@ class ChessBot():
         t1 = time.time()
         sample_move = self.choose_next_move(node)
         self.meta_data['choose_move_time'] += time.time() - t1
-        self.game.push(sample_move)
+        self.game.push(sample_move, depth)
 
         self.simulate_game(depth-1)
         # sample_node = self.game.node()
@@ -149,35 +149,49 @@ class ChessBot():
         for move, link in node.child_links.items():
             if link.weight > top_weight:
                 top_weight = link.weight
-            if link.node == None:
+            if link.node == None or link.node.visits == 0:
                 unexplored_options.append((move, link))
             else:
                 explored_options.append((move, link))
-        weight_multiplier = 1 / top_weight
 
-        # evaluate unexplored options
-        best_option = None
-        best_option_score = -1
-        for move, link in unexplored_options:
-            option_score = self.init_explore * node.visits - 1 / (link.weight * weight_multiplier + self.epsilon)
-            if option_score > best_option_score:
-                best_option = move
-                best_option_score = option_score
-
-        if len(explored_options) == 0 or best_option_score > 0:
-            return best_option
-        
-        # evaluate explored options
+        t1 = time.time()
         best_option = None
         best_option_score = None
+        if len(unexplored_options) > 0:
+            weights = np.zeros(len(unexplored_options))
+            for i in range(len(unexplored_options)):
+                link = unexplored_options[i][1]
+                weights[i] = link.weight
+            
+            weights /= top_weight  # scale weights based on certainty
+            weights += self.epsilon
+            option_scores = self.init_explore * node.visits - 1 / weights
+            best_option_index = np.argmax(option_scores)
+            best_option_score = option_scores[best_option_index]
+            best_option = unexplored_options[best_option_index][0]
+        self.meta_data['unexplored_moves'] += time.time() - t1
+        
+        if len(explored_options) == 0 or (best_option_score != None and best_option_score > 0):
+            return best_option
+
         t1 = time.time()
+        best_option = None
+        best_option_score = None
+        scores = np.zeros(len(explored_options))
+        visits = np.zeros(len(explored_options))
+        for i in range(len(explored_options)):
+            link = explored_options[i][1]
+            scores[i] = link.node.score
+            visits[i] = link.node.visits
+        
+        scores = 1 - scores
+        visits += 1
         log = math.log(node.visits)
-        self.meta_data['maths_time'] += time.time() - t1
-        for move, link in explored_options:
-            option_score = 1 - link.node.score + self.explore * math.sqrt(log / (link.node.visits + 1))
-            if best_option_score == None or option_score > best_option_score:
-                best_option = move
-                best_option_score = option_score
+        option_scores = np.multiply(scores + self.explore, np.sqrt(log / visits))
+        best_option_index = np.argmax(option_scores)
+        best_option = explored_options[best_option_index][0]
+
+        self.meta_data['explored_moves'] += time.time() - t1
         return best_option
 
     def train_from_board(self, board):

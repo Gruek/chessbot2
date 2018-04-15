@@ -29,17 +29,21 @@ class Game():
                 return
 
         self.root_node_id = new_node_id
-        self.node_stack = [self.expand(5)]
+        self.node_stack = [self.expand()]
 
     def push(self, move, depth=0):
         t1 = time.time()
         self.board.push_uci(move)
-        next_node = self.node_stack[-1].traverse([move])
+        next_node = self.node().traverse([move])
         if next_node == None:
             self.meta_data['push_time'] += time.time() - t1
             next_node = self.expand(depth)
+            self.node().child_links[move].node = next_node
+            # move_to_make = self.board.pop()
+            # self.expand2()
+            # self.board.push(move_to_make)
+            # next_node = self.node().traverse([move])
             t1 = time.time()
-            self.node_stack[-1].child_links[move].node = next_node
         self.node_stack.append(next_node)
         self.meta_data['push_time'] += time.time() - t1
 
@@ -91,16 +95,16 @@ class Game():
             legal_moves[uci] = NodeLink(weight)
         return legal_moves
 
-    def expand(self, depth):
-        if depth > 5:
-            return self.expand2()
+    def expand(self, depth=0):
+        # if depth > 5:
+        #     return self.expand2()
         # return self.expand2()
         expand_t1 = time.time()
         t1 = time.time()
         result = self.result()
         if result != -1:
             # end of game
-            score = -0.001
+            score = -0.01 * (depth + 1)
             if result == 0.5:
                 score = 0.5
             return Node(score)
@@ -132,53 +136,41 @@ class Game():
 
     def expand2(self):
         expand_t1 = time.time()
-        result = self.result()
-        if result != -1:
-            # end of game
-            score = -0.001
-            if result == 0.5:
-                score = 0.5
-            return Node(score)
+        # result = self.result()
+        # if result != -1:
+        #     # end of game
+        #     score = -0.001
+        #     if result == 0.5:
+        #         score = 0.5
+        #     return Node(score)
 
-        # forward cache all possible moves
-        node_score = -1
-        node_moves = {}
+        node = self.node()
+        moves_num = len(node.child_links)
         moves_to_eval = []
-        legal_moves = list(self.board.legal_moves)
         next_level_legal_moves = {}
-        moves_num = len(legal_moves)
-        board_inputs = np.zeros(shape=(moves_num+1, 8, 8, 12), dtype=np.int8)
-        castling_inputs = np.zeros(shape=(moves_num+1, 4), dtype=np.int8)
+        board_inputs = np.zeros(shape=(moves_num, 8, 8, 12), dtype=np.int8)
+        castling_inputs = np.zeros(shape=(moves_num, 4), dtype=np.int8)
         
-        for m in legal_moves:
-            self.board.push(m)
-            move_uci = m.uci()
+        for move, link in node.child_links.items():
+            self.board.push_uci(move)
             result = self.result()
             if result != -1:
                 score = -0.001
                 if result == 0.5:
                     score = 0.5
-                if 1 - score > node_score:
-                    node_score = 1 - score
-                node_moves[move_uci] = NodeLink(-1, Node(score))
+                link.node = Node(score)
             else:
                 board_matrix, castling_matrix = self.input_matrix(self.board)
                 index = len(moves_to_eval)
                 board_inputs[index] = board_matrix
                 castling_inputs[index] = castling_matrix
-                moves_to_eval.append(move_uci)
-                next_level_legal_moves[move_uci] = list(self.board.legal_moves)
+                moves_to_eval.append(move)
+                next_level_legal_moves[move] = list(self.board.legal_moves)
                 self.meta_data['inferences'] += 1
             self.board.pop()
 
-        # also evaluate current state
-        board_matrix, castling_matrix = self.input_matrix(self.board)
-        index = len(moves_to_eval)
-        board_inputs[index] = board_matrix
-        castling_inputs[index] = castling_matrix
-
-        board_inputs = board_inputs[:len(moves_to_eval) + 1]
-        castling_inputs = castling_inputs[:len(moves_to_eval) + 1]
+        board_inputs = board_inputs[:len(moves_to_eval)]
+        castling_inputs = castling_inputs[:len(moves_to_eval)]
 
         # run model
         t1 = time.time()
@@ -193,30 +185,19 @@ class Game():
                 link = NodeLink(weight)
                 childrens_links[next_move_uci] = link
             child_score = values[i][0]
-
-            if 1 - child_score > node_score:
-                node_score = 1 - child_score
-            node_moves[m] = NodeLink(-1, Node(child_score, childrens_links))
-
-        for m in legal_moves:
-            move_uci = m.uci()
-            move_index = self.move_encoder.uci_to_index(move_uci, self.board.turn)
-            node_moves[move_uci].weight = policies[index][move_index]
+            node.child_links[m].node = Node(child_score, childrens_links)
 
         self.meta_data['expand_time'] += time.time() - expand_t1
-        return Node(node_score, node_moves)
 
     def result(self):
         if self.board.is_checkmate():
             return 0
         if self.board.is_stalemate() or self.board.is_insufficient_material() or self.board.can_claim_fifty_moves():
             return 0.5
-        if len(self.board.move_stack) > 16 and self.board.halfmove_clock >= 6:
-            if self.board.move_stack[-1] == self.board.move_stack[-5]:
-                if self.board.move_stack[-2] == self.board.move_stack[-6]:
-                    # counting repetitions is expensive so do prelim checks
-                    if self.board.can_claim_threefold_repetition():
-                        return 0.5
+        if len(self.board.move_stack) > 16 and self.board.halfmove_clock >= 5:
+            # counting repetitions is expensive so do prelim checks
+            if self.board.can_claim_threefold_repetition():
+                return 0.5
         return -1
         
     def next_moves(self):

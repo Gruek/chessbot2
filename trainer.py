@@ -23,7 +23,7 @@ class Trainer():
             else:
                 ttt = think_time
                 if last_score:
-                    if last_score > 0.95 or last_score < 0.05:
+                    if last_score < 0.01:
                         ttt = think_time / 3
                 move = self.chbot.best_move(board, time_limit=ttt, depth=depth, debug=debug)
                 last_score = move['score']
@@ -40,26 +40,30 @@ class Trainer():
         print(result, len(board.move_stack), win)
         return board, win
 
-    def train_vs_stockfish(self, debug=False, think_time=20, depth=6):
-        fish = Engine(depth=20, param={"Threads": 12, "Hash": 64})
+    def train_vs_stockfish(self, debug=False, think_time=20, depth=6, stockfish_depth=6):
         wins = 0
         draws = 0
         games = 0
         while True:
+            fish = Engine(depth=stockfish_depth, param={"Threads": 1, "Hash": 64})
             board, win = self.play_vs_stockfish(fish, think_time=think_time, depth=depth, debug=debug)
             if win == 1:
                 wins += 1
                 if think_time > 1:
                     think_time -= 1
+                stockfish_depth += 1
             elif win == 0.5:
                 draws += 1
+                if think_time < 20:
+                    think_time += 1
             else:
                 if think_time < 20:
                     think_time += 1
-                pass
+                if stockfish_depth > 3:
+                    stockfish_depth -= 1
             games += 1
             self.chbot.train_from_board(board)
-            print('Wins:', wins, 'Draws:', draws, 'Games:', games, 'Think Time:', think_time)
+            print('Wins:', wins, 'Draws:', draws, 'Games:', games, 'Think Time:', think_time, 'Stockfish depth:', stockfish_depth)
         
     def play_vs_self(self, think_time, debug, depth):
         board = chess.Board()

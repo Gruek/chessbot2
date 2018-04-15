@@ -13,8 +13,8 @@ class ChessBot():
         self.move_encoder = MoveEncoder()
         gpus = len(device_lib.list_local_devices()) - 1
         self.model, self.model_template = get_model(len(self.move_encoder.moves), gpus)
-        self.explore = 0.3
-        self.init_explore = 1
+        self.explore = 0.4
+        self.init_explore = 1.1
         self.max_depth = 35
         self.same_score_threshold = 0.001
         self.epsilon = 0.0005
@@ -60,7 +60,7 @@ class ChessBot():
                 break
 
             if time.time() > eval_time:
-                moves = sorted(self.game.next_moves(), key=lambda x: x['visits'] * (1-x['score']), reverse=True)
+                moves = sorted(node.children(), key=lambda x: x['visits'] * (1-x['score']), reverse=True)
                 # end early if confident enough
                 
                 if debug:
@@ -68,79 +68,83 @@ class ChessBot():
                     for m in moves[:3]:
                         print(m)
 
-                if moves[0]['visits'] * (1-moves[0]['score']) > moves[1]['visits'] * (1-moves[1]['score']) * 20:
+                if len(moves) == 1 or moves[0]['visits'] * (1-moves[0]['score']) > moves[1]['visits'] * (1-moves[1]['score']) * 20:
                     return moves[0]
                 eval_time = time.time() + eval_freq
 
-        moves = sorted(self.game.next_moves(), key=lambda x: x['visits'] * (1-x['score']), reverse=True)
-        best_score = 1 - moves[0]['score']
-        visits = moves[0]['visits']
+        moves = []
+        for move, link in node.child_links.items():
+            if link.node != None and link.node.visits > 0:
+                moves.append((move, link))
+        lower_bounds = self.calc_confidence_bound(node.visits, moves, lower_bound=True)
+
+        formatted_moves = []
+        for i, m in enumerate(moves):
+            move = {'move': m[0], 'weight': m[1].weight, 'score': 1 - m[1].node.score, 'visits': m[1].node.visits, 'lower_bound': lower_bounds[i]}
+            formatted_moves.append(move)
+        formatted_moves.sort(key=lambda x: x['lower_bound'], reverse=True)
+        best_move = formatted_moves[0]
+
+        if debug:
+            print('total simulations:', node.visits, 'depth:', depth)
+            for m in formatted_moves[:3]:
+                print(m)
+
         best_moves = []
-        for m in moves:
-            m_score = 1 - m['score']
-            if m_score > best_score - self.same_score_threshold and m['visits'] >= visits - 2:
+        for m in formatted_moves:
+            if m['score'] > best_move['score'] - self.same_score_threshold and m['visits'] >= best_move['visits'] - 2:
                 best_moves.append(m)
             else:
                 break
 
         # if scores are the same choose move based of instinct
         best_moves.sort(key=lambda x: x['weight'], reverse=True)
-        best_move = best_moves[0]
-        if moves[0] != best_move:
-            print('best move')
-            print(best_move)
+        if best_moves[0] != best_move:
+            best_move = best_moves[0]
+            if debug:
+                print('best move')
+                print(best_move)
 
-        if debug:
-            print('total simulations:', node.visits, 'depth:', depth)
-            for m in moves[:3]:
-                print(m)
         return best_move
 
     def simulate_game(self, depth):
         node = self.game.node()
         node.visits += 1
         if len(node.child_links) == 0 or depth == 0:
-            return
+            return node.score
 
         t1 = time.time()
         sample_move = self.choose_next_move(node)
+
         self.meta_data['choose_move_time'] += time.time() - t1
         self.game.push(sample_move, depth)
-
-        self.simulate_game(depth-1)
-        # sample_node = self.game.node()
+        sample_score = 1 - self.simulate_game(depth-1)
+        sample_node = self.game.node()
         self.game.pop()
+
+        sample_score = 1 - sample_node.score
+        # node.score = ((node.visits - 1) * node.score + sample_score) / node.visits
+        # return sample_score
         
         t1 = time.time()
-        # best_move = None
-        # best_confidence_score = None
-        # for move in node.children():
-        #     conf_score = move['visits'] * (1 - move['score'])
-        #     if best_move == None or conf_score > best_confidence_score:
-        #         best_move = move
-        #         best_confidence_score = conf_score
-        # best_score = 1 - best_move['score']
-        # node.score = best_score
 
-        best_move = None
-        most_visited_move = None
-        for move in node.children():
-            if best_move == None or move['score'] < best_move['score']:
-                best_move = move
-            if most_visited_move == None or move['visits'] > most_visited_move['visits']:
-                most_visited_move = move
+        # backprop score of move with highest lower confidence bound
+        moves = []
+        potential_move = None
+        for move, link in node.child_links.items():
+            if link.node != None and link.node.visits > 0:
+                moves.append((move, link))
+                if potential_move == None or link.node.score < potential_move.score:
+                    potential_move = link.node
         
-        best_move_score = 1 - best_move['score']
-        most_visited_move_score = 1 - most_visited_move['score']
-        # if checkmate is found, incentivise shortest path to victory
-        if best_move_score > 1 or best_move_score < 0:
-            best_move_score *= 1.01
-        if most_visited_move_score > 1 or most_visited_move_score < 0:
-            most_visited_move_score *= 1.01
+        lower_bounds = self.calc_confidence_bound(node.visits, moves, lower_bound=True)
+        best_move_index = np.argmax(lower_bounds)
+        best_move = moves[best_move_index][1].node
 
-        node.score = (best_move['visits'] * best_move_score + most_visited_move['visits'] * most_visited_move_score) / (best_move['visits'] + most_visited_move['visits'])
+        node.score = ((1 - best_move.score) * best_move.visits + (1 - potential_move.score) * potential_move.visits) / (best_move.visits + potential_move.visits)
 
         self.meta_data['backprop_time'] += time.time() - t1
+        return sample_score
 
     def choose_next_move(self, node):
         top_weight = 0
@@ -165,7 +169,7 @@ class ChessBot():
             
             weights /= top_weight  # scale weights based on certainty
             weights += self.epsilon
-            option_scores = self.init_explore * node.visits - 1 / weights
+            option_scores = (self.init_explore * node.visits) - (1 / weights)
             best_option_index = np.argmax(option_scores)
             best_option_score = option_scores[best_option_index]
             best_option = unexplored_options[best_option_index][0]
@@ -175,26 +179,30 @@ class ChessBot():
             return best_option
 
         t1 = time.time()
-        best_option = None
-        best_option_score = None
-        scores = np.zeros(len(explored_options))
-        visits = np.zeros(len(explored_options))
-        for i in range(len(explored_options)):
-            link = explored_options[i][1]
-            scores[i] = link.node.score
-            visits[i] = link.node.visits
-        
-        scores = 1 - scores
-        visits += 1
-        log = math.log(node.visits)
-        option_scores = np.multiply(scores + self.explore, np.sqrt(log / visits))
+        option_scores = self.calc_confidence_bound(node.visits, explored_options)
         best_option_index = np.argmax(option_scores)
         best_option = explored_options[best_option_index][0]
-
         self.meta_data['explored_moves'] += time.time() - t1
         return best_option
 
-    def train_from_board(self, board):
+    def calc_confidence_bound(self, simulations_num, options, lower_bound=False):
+        scores = np.zeros(len(options))
+        visits = np.zeros(len(options))
+        for i in range(len(options)):
+            link = options[i][1]
+            scores[i] = link.node.score
+            visits[i] = link.node.visits
+        scores = 1 - scores
+        visits += 1
+        log = math.log(simulations_num)
+        confidence_range = self.explore * np.sqrt(log / visits)
+        if lower_bound:
+            confidence_range *= -1
+        option_scores = scores + confidence_range
+        return option_scores
+
+    def train_from_board(self, b):
+        board = b.copy()
         result = board.result(claim_draw=True)
         winner = 2
         if result == '1-0':

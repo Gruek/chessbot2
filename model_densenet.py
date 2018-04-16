@@ -8,6 +8,7 @@ from keras import regularizers
 from keras import initializers
 from keras import backend as K
 from keras.utils import multi_gpu_model
+import os
 
 config = tf.ConfigProto()
 # config.gpu_options.per_process_gpu_memory_fraction = 0.3
@@ -15,7 +16,10 @@ config.gpu_options.allow_growth = True
 # config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
 set_session(tf.Session(config=config))
 
-WEIGHTS_FILE = 'data/model_densenet.h5'
+# WEIGHTS_FILE = 'data/model_densenet.h5'
+# TEMP_FILE = 'data/model_densenet.h5.temp'
+WEIGHTS_FILE = '/data/kru03a/chbot/data/model_densenet.h5'
+TEMP_FILE = '/data/kru03a/chbot/data/model_densenet.temp.h5'
 WEIGHT_DECAY = 0.000
 
 def conv_block(x, growth_rate, name):
@@ -66,7 +70,7 @@ def transition_block(x, reduction, name):
     # x = layers.AveragePooling2D(2, strides=2, name=name + '_pool')(x)
     return x
 
-def get_model(outputs, num_gpus=1):
+def get_model(outputs=4184, num_gpus=1):
     # with tf.device('/device:GPU:0' if num_gpus == 1 else '/cpu:0'):
     if os.path.isfile(WEIGHTS_FILE) and False:
         model = models.load_model(WEIGHTS_FILE)
@@ -121,4 +125,6 @@ def get_model(outputs, num_gpus=1):
     return compiled_model, model
 
 def save_model(model):
-    model.save(WEIGHTS_FILE)
+    model.save(TEMP_FILE)
+    os.replace(WEIGHTS_FILE, WEIGHTS_FILE + ".backup")
+    os.replace(TEMP_FILE, WEIGHTS_FILE)

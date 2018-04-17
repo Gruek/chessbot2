@@ -15,9 +15,9 @@ class InferenceEngine(Process):
 
     def run(self):
         from model_densenet import get_model, save_model
-        model, template_model = get_model()
+        model, model_template = get_model()
         self.model = model
-        self.template_model = template_model
+        self.model_template = model_template
         self.p_save_model = save_model
         try:
             while True:

@@ -30,6 +30,8 @@ class Game():
 
         self.root_node_id = new_node_id
         self.node_stack = [self.expand()]
+        self.meta_data = {'inferences': 0, 'infer_time': 0, 'check_result_time': 0, 'move_validation_time': 0,
+            'push_time': 0, 'pop_time': 0, 'expand_time': 0, 'input_gen_time': 0}
 
     def push(self, move, depth=0):
         t1 = time.time()
@@ -112,21 +114,17 @@ class Game():
         self.meta_data['check_result_time'] += time.time() - t1
         self.meta_data['inferences'] += 1
 
-        board_inputs = np.zeros(shape=(1, 8, 8, 12), dtype=np.int8)
-        castling_inputs = np.zeros(shape=(1, 4), dtype=np.int8)
-
         # input
         t1 = time.time()
         board_matrix, castling_matrix = self.input_matrix(self.board)
         self.meta_data['input_gen_time'] += time.time() - t1
-        board_inputs[0] = board_matrix
-        castling_inputs[0] = castling_matrix
 
         # run model
         t1 = time.time()
-        policies, values = self.model.predict([board_inputs, castling_inputs])
+        policy, value = self.model.predict([board_matrix, castling_matrix])
         self.meta_data['infer_time'] += time.time() - t1
-        policy, value = policies[0], values[0][0]
+        # policy, value = policies[0], values[0][0]
+        value = value[0]
         t1 = time.time()
         node_children = self.validate_moves(policy)
         self.meta_data['move_validation_time'] += time.time() - t1
@@ -174,7 +172,7 @@ class Game():
 
         # run model
         t1 = time.time()
-        policies, values = self.model.predict([board_inputs, castling_inputs], batch_size=64)
+        policies, values = self.model.predict([board_inputs, castling_inputs])
         self.meta_data['infer_time'] += time.time() - t1
         for i, m in enumerate(moves_to_eval):
             childrens_links = {}
@@ -205,7 +203,7 @@ class Game():
 
 class Node():
     def __init__(self, score, children=None):
-        self.visits = 0
+        self.visits = 1
         self.score = score
         self.child_links = {}
         if children != None:

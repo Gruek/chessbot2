@@ -16,10 +16,10 @@ config.gpu_options.allow_growth = True
 # config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
 set_session(tf.Session(config=config))
 
-# WEIGHTS_FILE = 'data/model_densenet.h5'
-# TEMP_FILE = 'data/model_densenet.h5.temp'
-WEIGHTS_FILE = '/data/kru03a/chbot/data/model_densenet.h5'
-TEMP_FILE = '/data/kru03a/chbot/data/model_densenet.temp.h5'
+WEIGHTS_FILE = 'data/model_densenet.h5'
+TEMP_FILE = 'data/model_densenet.temp.h5'
+# WEIGHTS_FILE = '/data/kru03a/chbot/data/model_densenet.h5'
+# TEMP_FILE = '/data/kru03a/chbot/data/model_densenet.temp.h5'
 WEIGHT_DECAY = 0.000
 
 def conv_block(x, growth_rate, name):

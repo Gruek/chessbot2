@@ -43,15 +43,17 @@ class ChessBot():
         board = self.game.board
         while True:
             # stale game search
-            if node.visits > 100:
-                if depth < self.max_depth and node.visits % 10 == 0:
+            if node.visits > 100 and depth < self.max_depth:
+                if node.visits % 500 == 0:
+                    depth +=1
+                elif node.visits % 30 == 0:
                     if board.halfmove_clock > 10:
                         depth += 1
                     elif node.score < 1 and node.score > 0.98:
                         depth += 1
                     elif node.score > 0 and node.score < 0.02:
                         depth += 1
-
+              
             # simulate game
             self.simulate_game(depth)
 

@@ -40,7 +40,7 @@ class Game():
         if next_node == None:
             self.meta_data['push_time'] += time.time() - t1
             next_node = self.expand(depth)
-            self.node().child_links[move].node = next_node
+            self.node().set_child(move, next_node)
             # move_to_make = self.board.pop()
             # self.expand2()
             # self.board.push(move_to_make)
@@ -52,7 +52,7 @@ class Game():
     def pop(self):
         t1 = time.time()
         self.board.pop()
-        self.node_stack = self.node_stack[:-1]
+        self.node_stack.pop()
         self.meta_data['pop_time'] += time.time() - t1
 
     def root(self):
@@ -98,9 +98,6 @@ class Game():
         return legal_moves
 
     def expand(self, depth=0):
-        # if depth > 5:
-        #     return self.expand2()
-        # return self.expand2()
         expand_t1 = time.time()
         t1 = time.time()
         result = self.result()
@@ -132,61 +129,6 @@ class Game():
         self.meta_data['expand_time'] += time.time() - expand_t1
         return node
 
-    def expand2(self):
-        expand_t1 = time.time()
-        # result = self.result()
-        # if result != -1:
-        #     # end of game
-        #     score = -0.001
-        #     if result == 0.5:
-        #         score = 0.5
-        #     return Node(score)
-
-        node = self.node()
-        moves_num = len(node.child_links)
-        moves_to_eval = []
-        next_level_legal_moves = {}
-        board_inputs = np.zeros(shape=(moves_num, 8, 8, 12), dtype=np.int8)
-        castling_inputs = np.zeros(shape=(moves_num, 4), dtype=np.int8)
-        
-        for move, link in node.child_links.items():
-            self.board.push_uci(move)
-            result = self.result()
-            if result != -1:
-                score = -0.001
-                if result == 0.5:
-                    score = 0.5
-                link.node = Node(score)
-            else:
-                board_matrix, castling_matrix = self.input_matrix(self.board)
-                index = len(moves_to_eval)
-                board_inputs[index] = board_matrix
-                castling_inputs[index] = castling_matrix
-                moves_to_eval.append(move)
-                next_level_legal_moves[move] = list(self.board.legal_moves)
-                self.meta_data['inferences'] += 1
-            self.board.pop()
-
-        board_inputs = board_inputs[:len(moves_to_eval)]
-        castling_inputs = castling_inputs[:len(moves_to_eval)]
-
-        # run model
-        t1 = time.time()
-        policies, values = self.model.predict([board_inputs, castling_inputs])
-        self.meta_data['infer_time'] += time.time() - t1
-        for i, m in enumerate(moves_to_eval):
-            childrens_links = {}
-            for next_move in next_level_legal_moves[m]:
-                next_move_uci = next_move.uci()
-                move_index = self.move_encoder.uci_to_index(next_move_uci, not self.board.turn)
-                weight = policies[i][move_index]
-                link = NodeLink(weight)
-                childrens_links[next_move_uci] = link
-            child_score = values[i][0]
-            node.child_links[m].node = Node(child_score, childrens_links)
-
-        self.meta_data['expand_time'] += time.time() - expand_t1
-
     def result(self):
         if self.board.is_checkmate():
             return 0
@@ -197,13 +139,10 @@ class Game():
             if self.board.can_claim_threefold_repetition():
                 return 0.5
         return -1
-        
-    def next_moves(self):
-        return self.node().children(include_unvisited=True)
 
 class Node():
     def __init__(self, score, children=None):
-        self.visits = 1
+        self.visits = 0
         self.score = score
         self.child_links = {}
         if children != None:
@@ -229,6 +168,18 @@ class Node():
         if link and link.node:
             return link.node.traverse(path[1:])
         return None
+
+    def set_child(self, move, node):
+        self.child_links[move].node = node
+
+    def size(self):
+        count = 0
+        for move, link in self.child_links.items():
+            if link.node != None:
+                count += link.node.size()
+        if count == 0:
+            return 1
+        return count
 
     def __str__(self):
         return str({'score': self.score, 'visits': self.visits})

@@ -10,10 +10,10 @@ from multiprocessing import Process, Pool
 import os
 
 class ChessBot():
-    def __init__(self, master=True, num_slaves=11, model=None):
+    def __init__(self, master=True, num_slaves=0, model=None):
         self.move_encoder = MoveEncoder()
         self.explore = 0.4
-        self.init_explore = 1.1
+        self.init_explore = 1.0
         self.max_depth = 35
         self.same_score_threshold = 0.001
         self.epsilon = 0.0005
@@ -50,8 +50,6 @@ class ChessBot():
         eval_time = time.time() + eval_freq
 
         node = self.game.node()
-        if len(node.child_links) == 1:
-            return {'move': node.child_links.keys()[0]}
         board = self.game.board
         while True:
             # stale game search
@@ -112,7 +110,7 @@ class ChessBot():
 
         best_moves = []
         for m in formatted_moves:
-            if m['score'] > best_move['score'] - self.same_score_threshold and m['visits'] >= best_move['visits'] - 2:
+            if m['lower_bound'] > best_move['lower_bound'] - 0.007:
                 best_moves.append(m)
             else:
                 break
@@ -136,34 +134,47 @@ class ChessBot():
         t1 = time.time()
         moves_to_eval = self.choose_next_moves(node)
         master_eval = moves_to_eval[0]
-        other_eval = moves_to_eval[1:]
 
-        # if option is already being explored by a slave process skip it
-        if id(node.child_links[master_eval]) in self.slave_callbacks:
-            found_another_option = False
-            for i, move in enumerate(other_eval):
-                if not id(node.child_links[move]) in self.slave_callbacks:
+        if self.available_slaves > 0:
+            master_eval = None
+            other_eval = moves_to_eval[:]
+            for i, move in enumerate(moves_to_eval):
+                if node.child_links[move].node != None:
                     master_eval = move
-                    other_eval = other_eval[i:]
-                    found_another_option = True
+                    del other_eval[i]
                     break
-            if not found_another_option:
-                # wait for slave process to complete
-                t1 = time.time()
-                self.slave_callbacks[id(node.child_links[master_eval])]['response'].get()
-                self.meta_data['wait_slave'] += time.time() - t1
-        self.meta_data['choose_move_time'] += time.time() - t1
+            if master_eval == None:
+                master_eval = moves_to_eval[0]
+                other_eval = moves_to_eval[1:]
 
-        # evaluate moves using slaves processes
-        for move in other_eval[:self.available_slaves]:
-            link = node.child_links[move]
-            if id(link) in self.slave_callbacks:
-                continue
-            response = self.mp_pool.apply_async(slave_simulate, args=[self.game.board.copy(), [node], move, depth, id(link), time.time()], callback=self.slave_callback)
-            self.slave_callbacks[id(link)] = {'response': response, 'node': node, 'move': move, 'node_stack': self.game.node_stack[:]}
-            self.available_slaves -= 1
+            # if option is already being explored by a slave process skip it
+            if id(node.child_links[master_eval]) in self.slave_callbacks:
+                found_another_option = False
+                for i, move in enumerate(other_eval):
+                    if not id(node.child_links[move]) in self.slave_callbacks:
+                        master_eval = move
+                        other_eval = other_eval[i:]
+                        found_another_option = True
+                        break
+                if not found_another_option:
+                    # wait for slave process to complete
+                    t1 = time.time()
+                    self.slave_callbacks[id(node.child_links[master_eval])]['response'].get()
+                    self.meta_data['wait_slave'] += time.time() - t1
+            self.meta_data['choose_move_time'] += time.time() - t1
 
-        self.game.push(master_eval, depth)
+            # evaluate moves using slaves processes
+            for move in other_eval[:self.available_slaves]:
+                link = node.child_links[move]
+                if id(link) in self.slave_callbacks:
+                    continue
+                if link.node != None:
+                    continue
+                response = self.mp_pool.apply_async(slave_simulate, args=[self.game.board.copy(), link.node, move, depth, id(link), time.time()], callback=self.slave_callback)
+                self.slave_callbacks[id(link)] = {'response': response, 'node': node, 'move': move, 'node_stack': self.game.node_stack[:]}
+                self.available_slaves -= 1
+
+        self.game.push(master_eval, depth-1)
         sample_node = self.simulate_game(depth-1)
         self.game.pop()
         
@@ -190,7 +201,7 @@ class ChessBot():
         return node
 
     def choose_next_moves(self, node):
-        potential_visits = node.visits + self.total_slaves
+        potential_visits = node.visits + self.available_slaves
         top_weight = 0
         unexplored_options = []
         explored_options = []
@@ -359,13 +370,14 @@ def init_slave(model):
     print("Spawning slave process", os.getpid())
 
 
-def slave_simulate(board, node_stack, move, depth, id, timestamp):
+def slave_simulate(board, node, move, depth, id, timestamp):
     slave.meta_data['total_simulations'] += 1
     slave.game.board = board
-    slave.game.node_stack = node_stack
     slave.meta_data['comms_time'] += time.time() - timestamp
-
-    slave.game.push(move, depth)
+    slave.game.board.push_uci(move)
+    if node == None:
+        node = slave.game.expand()
+    slave.game.node_stack = [node]
     return slave.simulate_game(depth-1), id
 
 def slave_stats(i):

@@ -10,13 +10,13 @@ from multiprocessing import Process, Pool
 import os
 
 class ChessBot():
-    def __init__(self, master=True, num_slaves=20, model=None):
+    def __init__(self, master=True, num_slaves=40, model=None):
         self.move_encoder = MoveEncoder()
-        self.explore = 0.3
+        self.explore = 0.20
         self.init_explore = 1.0
         self.max_depth = 35
         self.same_score_threshold = 0.001
-        self.epsilon = 0.0005
+        self.epsilon = 0.00001
         self.meta_data = {'choose_move_time': 0, 'backprop_time': 0, 'unexplored_moves': 0, 'explored_moves': 0, 'wait_slave': 0, 'comms_time': 0,
             'total_simulations': 0, 'callback_t': 0, 'backprops': 0}
 
@@ -57,12 +57,12 @@ class ChessBot():
         bonus_depth = 0
         while True:
             # stale game search
-            if node.visits > 100 and depth < self.max_depth:
-                depth = init_depth + node.visits // 500
+            if node.visits > 500 and depth < self.max_depth:
+                depth = init_depth + node.visits // 600
+                if board.halfmove_clock > 10 and self.meta_data['total_simulations'] % 10 == 0:
+                    bonus_depth += 1
                 if self.meta_data['total_simulations'] % 20 == 0:
-                    if board.halfmove_clock > 10:
-                        bonus_depth += 1
-                    elif node.score < 1 and node.score > 0.98:
+                    if node.score < 1 and node.score > 0.98:
                         bonus_depth += 1
                     elif node.score > 0 and node.score < 0.02:
                         bonus_depth += 1
@@ -279,16 +279,18 @@ class ChessBot():
                     potential_move = link.node
 
         if len(moves) > 0:
-            # lower_bounds = self.calc_confidence_bound(node.visits, moves, lower_bound=True)
-            # best_move_index = np.argmax(lower_bounds)
-            # best_move = moves[best_move_index][1].node
+            lower_bounds = self.calc_confidence_bound(node.visits, moves, lower_bound=True)
+            best_move_index = np.argmax(lower_bounds)
+            best_move = moves[best_move_index][1].node
 
             # node.score = ((1 - best_move.score) * (best_move.visits+1) + (1 - potential_move.score) * (potential_move.visits+1)) / (best_move.visits + potential_move.visits + 2)
             # node.score = ((1 - best_move.score) + (1 - potential_move.score)) / 2
             # node.score = (1 - potential_move.score)
+            # node.score = 1 - best_move.score
 
-            total_scores += potential_move.score * (potential_move.visits + 1)
-            total_visits += potential_move.visits + 1
+            best_score_weight = math.log(potential_move.visits + 1)
+            total_scores += potential_move.score * (potential_move.visits + 1) * best_score_weight
+            total_visits += (potential_move.visits + 1) * best_score_weight
             avg_score = 1 - total_scores / total_visits
             node.score = avg_score
         self.backprop(node_stack)

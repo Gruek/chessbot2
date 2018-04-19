@@ -10,14 +10,15 @@ from multiprocessing import Process, Pool
 import os
 
 class ChessBot():
-    def __init__(self, master=True, num_slaves=0, model=None):
+    def __init__(self, master=True, num_slaves=20, model=None):
         self.move_encoder = MoveEncoder()
-        self.explore = 0.4
+        self.explore = 0.3
         self.init_explore = 1.0
         self.max_depth = 35
         self.same_score_threshold = 0.001
         self.epsilon = 0.0005
-        self.meta_data = {'choose_move_time': 0, 'backprop_time': 0, 'unexplored_moves': 0, 'explored_moves': 0, 'wait_slave': 0, 'comms_time': 0, 'total_simulations': 0, 'callback_t': 0}
+        self.meta_data = {'choose_move_time': 0, 'backprop_time': 0, 'unexplored_moves': 0, 'explored_moves': 0, 'wait_slave': 0, 'comms_time': 0,
+            'total_simulations': 0, 'callback_t': 0, 'backprops': 0}
 
         self.mp_pool = None
         self.master = master
@@ -26,6 +27,7 @@ class ChessBot():
         self.total_slaves = 0
         self.slave_callbacks = {}
         self.backprop_queue = []
+        self.completed_callbacks = []
 
         if master:
             self.model = InferenceEngine()
@@ -51,23 +53,26 @@ class ChessBot():
 
         node = self.game.node()
         board = self.game.board
+        init_depth = depth
+        bonus_depth = 0
         while True:
             # stale game search
             if node.visits > 100 and depth < self.max_depth:
-                if node.visits % 500 == 0:
-                    depth +=1
-                elif node.visits % 30 == 0:
+                depth = init_depth + node.visits // 500
+                if self.meta_data['total_simulations'] % 20 == 0:
                     if board.halfmove_clock > 10:
-                        depth += 1
+                        bonus_depth += 1
                     elif node.score < 1 and node.score > 0.98:
-                        depth += 1
+                        bonus_depth += 1
                     elif node.score > 0 and node.score < 0.02:
-                        depth += 1
+                        bonus_depth += 1
+                depth += bonus_depth
               
             # simulate game
             self.simulate_game(depth)
             self.meta_data['total_simulations'] += 1
             t1 = time.time()
+            self.clear_callback_queue()
             self.clear_backprop_queue()
             self.meta_data['backprop_time'] += time.time() - t1
 
@@ -128,80 +133,61 @@ class ChessBot():
     def simulate_game(self, depth):
         node = self.game.node()
         if len(node.child_links) == 0 or depth == 0:
-            node.visits += 1
+            self.backprop_queue.append(self.game.node_stack[:])
             return node
 
         t1 = time.time()
-        moves_to_eval = self.choose_next_moves(node)
-        master_eval = moves_to_eval[0]
+        potential_moves = self.choose_next_moves(node, 0, 0)
+        main_eval, other_evals = self.assign_slaves(node, potential_moves)
+        self.meta_data['choose_move_time'] += time.time() - t1
 
-        if self.available_slaves > 0:
-            master_eval = None
-            other_eval = moves_to_eval[:]
-            for i, move in enumerate(moves_to_eval):
-                if node.child_links[move].node != None:
-                    master_eval = move
-                    del other_eval[i]
-                    break
-            if master_eval == None:
-                master_eval = moves_to_eval[0]
-                other_eval = moves_to_eval[1:]
+        # launch slave processes
+        for move in other_evals:
+            link = node.child_links[move]
+            response = self.mp_pool.apply_async(slave_simulate, args=[self.game.board.copy(), link.node, move, depth-1, id(link), time.time()], callback=self.slave_callback)
+            self.slave_callbacks[id(link)] = {'response': response, 'node': node, 'move': move, 'node_stack': self.game.node_stack[:]}
+            self.available_slaves -= 1
 
-            # if option is already being explored by a slave process skip it
-            if id(node.child_links[master_eval]) in self.slave_callbacks:
-                found_another_option = False
-                for i, move in enumerate(other_eval):
-                    if not id(node.child_links[move]) in self.slave_callbacks:
-                        master_eval = move
-                        other_eval = other_eval[i:]
-                        found_another_option = True
-                        break
-                if not found_another_option:
-                    # wait for slave process to complete
-                    t1 = time.time()
-                    self.slave_callbacks[id(node.child_links[master_eval])]['response'].get()
-                    self.meta_data['wait_slave'] += time.time() - t1
-            self.meta_data['choose_move_time'] += time.time() - t1
-
-            # evaluate moves using slaves processes
-            for move in other_eval[:self.available_slaves]:
-                link = node.child_links[move]
-                if id(link) in self.slave_callbacks:
-                    continue
-                if link.node != None:
-                    continue
-                response = self.mp_pool.apply_async(slave_simulate, args=[self.game.board.copy(), link.node, move, depth, id(link), time.time()], callback=self.slave_callback)
-                self.slave_callbacks[id(link)] = {'response': response, 'node': node, 'move': move, 'node_stack': self.game.node_stack[:]}
-                self.available_slaves -= 1
-
-        self.game.push(master_eval, depth-1)
+        self.game.push(main_eval, depth-1)
         sample_node = self.simulate_game(depth-1)
         self.game.pop()
-        
-        t1 = time.time()
-
-        # backprop weighted score between move with highest lower confidence bound and best score
-        moves = []
-        potential_move = None
-        node.visits = 0
-        for move, link in node.child_links.items():
-            if link.node != None:
-                node.visits += link.node.visits
-                moves.append((move, link))
-                if potential_move == None or link.node.score < potential_move.score:
-                    potential_move = link.node
-        
-        lower_bounds = self.calc_confidence_bound(node.visits, moves, lower_bound=True)
-        best_move_index = np.argmax(lower_bounds)
-        best_move = moves[best_move_index][1].node
-
-        node.score = ((1 - best_move.score) * best_move.visits + (1 - potential_move.score) * potential_move.visits) / (best_move.visits + potential_move.visits)
-
-        self.meta_data['backprop_time'] += time.time() - t1
         return node
 
-    def choose_next_moves(self, node):
-        potential_visits = node.visits + self.available_slaves
+    def assign_slaves(self, node, potential_moves):
+        # returns move to evaluate on main proc and list of moves to evaluate on slave procs
+        if self.total_slaves == 0:
+            return potential_moves[0], []
+
+        moves_to_eval = []
+        # skip moves already being evaluated by slaves
+        for move in potential_moves:
+            if not id(node.child_links[move]) in self.slave_callbacks:
+                moves_to_eval.append(move)
+
+        # if no other moves to explore wait for slave process to complete
+        if len(moves_to_eval) == 0:
+            main_eval = potential_moves[0]
+            t1 = time.time()
+            self.slave_callbacks[id(node.child_links[main_eval])]['response'].get()
+            self.meta_data['wait_slave'] += time.time() - t1
+            return main_eval, []
+
+        moves_to_eval = moves_to_eval[:self.available_slaves + 1]
+        main_eval_index = 0
+        # prioritise explored moves on main proc
+        for i, move in enumerate(moves_to_eval):
+            if node.child_links[move].node != None:
+                main_eval_index = i
+                break
+        main_eval = moves_to_eval.pop(main_eval_index)
+        other_eval = []
+        for move in moves_to_eval:
+            if node.child_links[move].node == None:
+                other_eval.append(move)
+        return main_eval, other_eval
+
+    def choose_next_moves(self, node, unexplored_lookahead=0, explored_lookahead=0):
+        potential_visits = node.visits + unexplored_lookahead
         top_weight = 0
         unexplored_options = []
         explored_options = []
@@ -237,10 +223,9 @@ class ChessBot():
                     best_option_index = np.argmax(option_scores)
                     next_moves.append(unexplored_options[best_option_index][0])
                 return next_moves
-            if len(next_moves) >= 1 + self.total_slaves:
-                return next_moves
 
         if len(explored_options) > 0:
+            potential_visits = node.visits + explored_lookahead
             t1 = time.time()
             option_scores = self.calc_confidence_bound(potential_visits, explored_options)
             best_option_index = np.argmax(option_scores)
@@ -271,28 +256,41 @@ class ChessBot():
 
     def clear_backprop_queue(self):
         while len(self.backprop_queue) > 0:
-            self.backprop(self.backprop_queue.pop())
+            self.meta_data['backprops'] += 1
+            self.backprop(self.backprop_queue.pop(0))
 
     def backprop(self, node_stack):
         if len(node_stack) == 0:
             return
         node = node_stack.pop()
         # backprop weighted score between move with highest lower confidence bound and best score
+
+        node.visits += 1
         moves = []
         potential_move = None
-        node.visits = 0
+        total_scores = 0
+        total_visits = 0
         for move, link in node.child_links.items():
             if link.node != None:
-                node.visits += link.node.visits
                 moves.append((move, link))
+                total_scores += link.node.score * (link.node.visits + 1)
+                total_visits += link.node.visits + 1
                 if potential_move == None or link.node.score < potential_move.score:
                     potential_move = link.node
-        
-        lower_bounds = self.calc_confidence_bound(node.visits, moves, lower_bound=True)
-        best_move_index = np.argmax(lower_bounds)
-        best_move = moves[best_move_index][1].node
 
-        node.score = ((1 - best_move.score) * best_move.visits + (1 - potential_move.score) * potential_move.visits) / (best_move.visits + potential_move.visits)
+        if len(moves) > 0:
+            # lower_bounds = self.calc_confidence_bound(node.visits, moves, lower_bound=True)
+            # best_move_index = np.argmax(lower_bounds)
+            # best_move = moves[best_move_index][1].node
+
+            # node.score = ((1 - best_move.score) * (best_move.visits+1) + (1 - potential_move.score) * (potential_move.visits+1)) / (best_move.visits + potential_move.visits + 2)
+            # node.score = ((1 - best_move.score) + (1 - potential_move.score)) / 2
+            # node.score = (1 - potential_move.score)
+
+            total_scores += potential_move.score * (potential_move.visits + 1)
+            total_visits += potential_move.visits + 1
+            avg_score = 1 - total_scores / total_visits
+            node.score = avg_score
         self.backprop(node_stack)
 
     def train_from_board(self, b):
@@ -323,18 +321,25 @@ class ChessBot():
 
         self.model.fit([inputs_board_state, inputs_castling], [outputs_move, outputs_value])
 
-    def slave_callback(self, data):
+    def clear_callback_queue(self):
         t1 = time.time()
-        new_node, id = data
-        # join parallel processes
-        callback_data = self.slave_callbacks[id]
-        node = callback_data['node']
-        move = callback_data['move']
-        node.set_child(move, new_node)
-        self.backprop_queue.append(callback_data['node_stack'])
-        del self.slave_callbacks[id]
-        self.available_slaves += 1
+        while len(self.completed_callbacks) > 0:
+            cb_id = self.completed_callbacks.pop()
+            callback_data = self.slave_callbacks[cb_id]
+            node = callback_data['node']
+            move = callback_data['move']
+            new_node = callback_data['new_node']
+            node.set_child(move, new_node)
+            self.backprop_queue.append(callback_data['node_stack'])
+            del self.slave_callbacks[cb_id]
+            self.available_slaves += 1
         self.meta_data['callback_t'] += time.time() - t1
+
+    def slave_callback(self, data):
+        new_node, cb_id = data
+        # join parallel processes
+        self.slave_callbacks[cb_id]['new_node'] = new_node
+        self.completed_callbacks.append(cb_id)
 
     def print_stats(self, i=0):
         print(i, self.meta_data, self.game.meta_data)
@@ -358,6 +363,7 @@ class ChessBot():
         remaining_tasks = list(self.slave_callbacks.values())
         for callback_data in remaining_tasks:
             callback_data['response'].get()
+        self.clear_callback_queue()
         assert(self.available_slaves == self.total_slaves)
 
 class SlaveBot(ChessBot):
@@ -378,7 +384,10 @@ def slave_simulate(board, node, move, depth, id, timestamp):
     if node == None:
         node = slave.game.expand()
     slave.game.node_stack = [node]
-    return slave.simulate_game(depth-1), id
+    new_node = slave.simulate_game(depth)
+    slave.clear_backprop_queue()
+    return new_node, id
 
 def slave_stats(i):
+    time.sleep(0.2)
     return slave.print_stats(i)

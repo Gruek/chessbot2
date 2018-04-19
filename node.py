@@ -41,10 +41,6 @@ class Game():
             self.meta_data['push_time'] += time.time() - t1
             next_node = self.expand(depth)
             self.node().set_child(move, next_node)
-            # move_to_make = self.board.pop()
-            # self.expand2()
-            # self.board.push(move_to_make)
-            # next_node = self.node().traverse([move])
             t1 = time.time()
         self.node_stack.append(next_node)
         self.meta_data['push_time'] += time.time() - t1

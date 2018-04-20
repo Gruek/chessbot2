@@ -18,4 +18,4 @@ from bot import ChessBot
 #     trainer_standard.epoch()
 
 t = Trainer()
-t.train_vs_self()
+t.train_vs_self(think_time=20)

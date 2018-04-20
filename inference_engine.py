@@ -21,10 +21,10 @@ class InferenceEngine(Process):
         self.p_save_model = save_model
         try:
             while True:
-                if len(self.input_dict) > 0:
-                    self.p_predict()
                 if not self.train_queue.empty():
                     self.p_fit()
+                if len(self.input_dict) > 0:
+                    self.p_predict()
                 else:
                     sleep(self.io_wait_time)
         except (EOFError, BrokenPipeError, TypeError, FileNotFoundError, ConnectionResetError) as e:

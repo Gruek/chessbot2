@@ -1,4 +1,5 @@
 import chess
+import chess.pgn as pgn
 import numpy as np
 from move_encoder import MoveEncoder
 import math
@@ -19,6 +20,7 @@ class ChessBot():
         self.epsilon = 0.00001
         self.meta_data = {'choose_move_time': 0, 'backprop_time': 0, 'unexplored_moves': 0, 'explored_moves': 0, 'wait_slave': 0, 'comms_time': 0,
             'total_simulations': 0, 'callback_t': 0, 'backprops': 0}
+        self.data_out_path = 'data_out.pgn'
 
         self.mp_pool = None
         self.master = master
@@ -30,8 +32,9 @@ class ChessBot():
         self.completed_callbacks = []
 
         if master:
-            self.model = InferenceEngine()
-            self.model.start()
+            if self.model == None:
+                self.model = InferenceEngine()
+                self.model.start()
             if num_slaves > 0:
                 self.available_slaves = num_slaves
                 self.total_slaves = num_slaves
@@ -39,7 +42,7 @@ class ChessBot():
                 self.mp_pool = Pool(processes=num_slaves, initializer=init_slave, initargs=(self.model,))
         self.game = Game(self.model)
 
-    def best_move(self, board, depth=7, time_limit=10, debug=False, eval_freq=15):
+    def best_move(self, board, depth=5, time_limit=10, debug=False, eval_freq=15):
         self.game.set_position(board)
         if debug:
             print(self.game.root())
@@ -81,15 +84,24 @@ class ChessBot():
                 break
 
             if time.time() > eval_time:
-                moves = sorted(node.children(), key=lambda x: x['visits'] * (1-x['score']), reverse=True)
                 # end early if confident enough
+                moves = []
+                for move, link in node.child_links.items():
+                    if link.node != None:
+                        moves.append((move, link))
+
+                formatted_moves = []
+                for i, m in enumerate(moves):
+                    move = {'move': m[0], 'weight': m[1].weight, 'score': 1 - m[1].node.score, 'visits': m[1].node.visits}
+                    formatted_moves.append(move)
+                formatted_moves.sort(key=lambda x: x['score'], reverse=True)
                 
                 if debug:
                     print('total simulations:', node.visits, 'depth:', depth)
-                    for m in moves[:3]:
+                    for m in formatted_moves[:3]:
                         print(m)
 
-                if len(moves) == 1 or moves[0]['visits'] * (1-moves[0]['score']) > moves[1]['visits'] * (1-moves[1]['score']) * 20:
+                if len(moves) == 1 or moves[0]['visits'] * (moves[0]['score']) > moves[1]['visits'] * (moves[1]['score']) * 20:
                     return moves[0]
                 eval_time = time.time() + eval_freq
 
@@ -115,7 +127,7 @@ class ChessBot():
 
         best_moves = []
         for m in formatted_moves:
-            if m['lower_bound'] > best_move['lower_bound'] - 0.007:
+            if m['lower_bound'] > best_move['lower_bound'] - 0.008:
                 best_moves.append(m)
             else:
                 break
@@ -172,18 +184,19 @@ class ChessBot():
             self.meta_data['wait_slave'] += time.time() - t1
             return main_eval, []
 
-        moves_to_eval = moves_to_eval[:self.available_slaves + 1]
         main_eval_index = 0
         # prioritise explored moves on main proc
-        for i, move in enumerate(moves_to_eval):
-            if node.child_links[move].node != None:
-                main_eval_index = i
-                break
+        if self.available_slaves > 0:
+            for i, move in enumerate(moves_to_eval):
+                if node.child_links[move].node != None:
+                    main_eval_index = i
+                    break
         main_eval = moves_to_eval.pop(main_eval_index)
         other_eval = []
         for move in moves_to_eval:
             if node.child_links[move].node == None:
                 other_eval.append(move)
+        other_eval = other_eval[:self.available_slaves]
         return main_eval, other_eval
 
     def choose_next_moves(self, node, unexplored_lookahead=0, explored_lookahead=0):
@@ -279,24 +292,32 @@ class ChessBot():
                     potential_move = link.node
 
         if len(moves) > 0:
-            lower_bounds = self.calc_confidence_bound(node.visits, moves, lower_bound=True)
-            best_move_index = np.argmax(lower_bounds)
-            best_move = moves[best_move_index][1].node
+            # lower_bounds = self.calc_confidence_bound(node.visits, moves, lower_bound=True)
+            # best_move_index = np.argmax(lower_bounds)
+            # best_move = moves[best_move_index][1].node
 
             # node.score = ((1 - best_move.score) * (best_move.visits+1) + (1 - potential_move.score) * (potential_move.visits+1)) / (best_move.visits + potential_move.visits + 2)
             # node.score = ((1 - best_move.score) + (1 - potential_move.score)) / 2
             # node.score = (1 - potential_move.score)
             # node.score = 1 - best_move.score
 
-            best_score_weight = math.log(potential_move.visits + 1)
+            best_score_weight = math.log(len(moves))
+
             total_scores += potential_move.score * (potential_move.visits + 1) * best_score_weight
             total_visits += (potential_move.visits + 1) * best_score_weight
-            avg_score = 1 - total_scores / total_visits
-            node.score = avg_score
+
+            # total_scores += best_move.score * (best_move.visits + 1)
+            # total_visits += (best_move.visits + 1)
+
+            node.score = 1 - total_scores / total_visits
         self.backprop(node_stack)
 
     def train_from_board(self, b):
         board = b.copy()
+        # save game
+        g = pgn.Game.from_board(board)
+        with open(self.data_out_path, "a") as f:
+            print(g, file=f, end='\n\n')
         result = board.result(claim_draw=True)
         winner = 2
         if result == '1-0':

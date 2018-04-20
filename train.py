@@ -2,7 +2,6 @@ from db_trainer import DBTrainer
 from trainer import Trainer
 from bot import ChessBot
 
-stockfish_trainer = Trainer()
 # chbot = ChessBot()
 # trainer_standard = DBTrainer(chbot=chbot)
 # trainer_pro = DBTrainer(db_path='/data/kru03a/chbot/data/moves.db', chbot=chbot)
@@ -18,4 +17,5 @@ stockfish_trainer = Trainer()
 #     print('EPOCH #', i)
 #     trainer_standard.epoch()
 
-stockfish_trainer.train_vs_stockfish()
+t = Trainer()
+t.train_vs_self()

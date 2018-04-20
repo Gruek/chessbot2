@@ -15,7 +15,7 @@ class ChessBot():
         self.move_encoder = MoveEncoder()
         self.explore = 0.20
         self.init_explore = 1.0
-        self.max_depth = 35
+        self.max_depth = 20
         self.same_score_threshold = 0.001
         self.epsilon = 0.00001
         self.meta_data = {'choose_move_time': 0, 'backprop_time': 0, 'unexplored_moves': 0, 'explored_moves': 0, 'wait_slave': 0, 'comms_time': 0,
@@ -61,10 +61,11 @@ class ChessBot():
         while True:
             # stale game search
             if node.visits > 500 and depth < self.max_depth:
-                depth = init_depth + node.visits // 600
-                if board.halfmove_clock > 10 and self.meta_data['total_simulations'] % 10 == 0:
-                    bonus_depth += 1
-                if self.meta_data['total_simulations'] % 20 == 0:
+                depth = init_depth + node.visits // 800
+                if self.meta_data['total_simulations'] % 10 == 0:
+                    if board.halfmove_clock > 10:
+                        bonus_depth += 1
+                elif self.meta_data['total_simulations'] % 50 == 0:
                     if node.score < 1 and node.score > 0.98:
                         bonus_depth += 1
                     elif node.score > 0 and node.score < 0.02:
@@ -101,8 +102,8 @@ class ChessBot():
                     for m in formatted_moves[:3]:
                         print(m)
 
-                if len(moves) == 1 or moves[0]['visits'] * (moves[0]['score']) > moves[1]['visits'] * (moves[1]['score']) * 20:
-                    return moves[0]
+                if len(formatted_moves) == 1 or formatted_moves[0]['visits'] * (formatted_moves[0]['score']) > formatted_moves[1]['visits'] * (formatted_moves[1]['score']) * 20:
+                    return formatted_moves[0]
                 eval_time = time.time() + eval_freq
 
         self.sync_slaves()
@@ -127,7 +128,7 @@ class ChessBot():
 
         best_moves = []
         for m in formatted_moves:
-            if m['lower_bound'] > best_move['lower_bound'] - 0.008:
+            if m['lower_bound'] > best_move['lower_bound'] - 0.01:
                 best_moves.append(m)
             else:
                 break

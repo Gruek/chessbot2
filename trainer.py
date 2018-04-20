@@ -2,7 +2,7 @@ import chess
 from bot import ChessBot
 import sqlite3
 import numpy as np
-# from pystockfish import Engine
+from pystockfish import Engine
 from IPython.display import clear_output
 from IPython.core.display import display
 import sys

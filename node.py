@@ -101,7 +101,7 @@ class Game():
             # end of game
             score = -0.1 / len(self.node_stack)
             if result == 0.5:
-                score = 0.5
+                score = 0.5 - 0.001 / len(self.node_stack)
             return Node(score)
 
         self.meta_data['check_result_time'] += time.time() - t1

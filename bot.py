@@ -65,11 +65,11 @@ class ChessBot():
                 if self.meta_data['total_simulations'] % 10 == 0:
                     if board.halfmove_clock > 10:
                         bonus_depth += 1
-                elif self.meta_data['total_simulations'] % 50 == 0:
-                    if node.score < 1 and node.score > 0.98:
-                        bonus_depth += 1
-                    elif node.score > 0 and node.score < 0.02:
-                        bonus_depth += 1
+                    elif self.meta_data['total_simulations'] % 40 == 0:
+                        if node.score < 1 and node.score > 0.98:
+                            bonus_depth += 1
+                        elif node.score > 0 and node.score < 0.02:
+                            bonus_depth += 1
                 depth += bonus_depth
               
             # simulate game

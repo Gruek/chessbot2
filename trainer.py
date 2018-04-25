@@ -99,7 +99,7 @@ class Trainer():
         print(result, len(board.move_stack), win, winner)
         return board, win, winner
     
-    def train_vs_self(self, debug=False, think_time=10, depth=5):
+    def train_vs_self(self, debug=False, think_time=10, depth=10):
         white_wins = 0
         black_wins = 0
         draws = 0

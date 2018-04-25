@@ -21,12 +21,12 @@ class Game():
         self.board = board.copy()
         new_node_id = self.node_id(self.board)
 
-        if self.root() != None and new_node_id[:len(self.root_node_id)] == self.root_node_id:
-            new_node = self.root().traverse(new_node_id[len(self.root_node_id):])
-            if new_node:
-                self.node_stack = [new_node]
-                self.root_node_id = new_node_id
-                return
+        # if self.root() != None and new_node_id[:len(self.root_node_id)] == self.root_node_id:
+        #     new_node = self.root().traverse(new_node_id[len(self.root_node_id):])
+        #     if new_node:
+        #         self.node_stack = [new_node]
+        #         self.root_node_id = new_node_id
+        #         return
 
         self.root_node_id = new_node_id
         self.node_stack = [self.expand()]

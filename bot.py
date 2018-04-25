@@ -15,7 +15,7 @@ class ChessBot():
         self.move_encoder = MoveEncoder()
         self.explore = 0.20
         self.init_explore = 1.0
-        self.max_depth = 20
+        self.max_depth = 25
         self.same_score_threshold = 0.001
         self.epsilon = 0.00001
         self.meta_data = {'choose_move_time': 0, 'backprop_time': 0, 'unexplored_moves': 0, 'explored_moves': 0, 'wait_slave': 0, 'comms_time': 0,
@@ -58,19 +58,22 @@ class ChessBot():
         board = self.game.board
         init_depth = depth
         bonus_depth = 0
+        if board.halfmove_clock > 15:
+            depth = 51
+            # bonus_depth = 51 - depth
         while True:
             # stale game search
-            if node.visits > 500 and depth < self.max_depth:
-                depth = init_depth + node.visits // 800
-                if self.meta_data['total_simulations'] % 10 == 0:
-                    if board.halfmove_clock > 10:
-                        bonus_depth += 1
-                    elif self.meta_data['total_simulations'] % 40 == 0:
-                        if node.score < 1 and node.score > 0.98:
-                            bonus_depth += 1
-                        elif node.score > 0 and node.score < 0.02:
-                            bonus_depth += 1
-                depth += bonus_depth
+            # if node.visits > 500 and depth < self.max_depth:
+                # depth = init_depth + node.visits // 1200
+                # if self.meta_data['total_simulations'] % 10 == 0:
+                #     if board.halfmove_clock > 10:
+                #         bonus_depth += 1
+                #     elif self.meta_data['total_simulations'] % 40 == 0:
+                #         if node.score < 1 and node.score > 0.98:
+                #             bonus_depth += 1
+                #         elif node.score > 0 and node.score < 0.02:
+                #             bonus_depth += 1
+                # depth += bonus_depth
               
             # simulate game
             self.simulate_game(depth)
@@ -84,7 +87,7 @@ class ChessBot():
             if time.time() > cutoff_time:
                 break
 
-            if time.time() > eval_time:
+            if time.time() > eval_time or len(node.child_links) == 1:
                 # end early if confident enough
                 moves = []
                 for move, link in node.child_links.items():

@@ -18,8 +18,9 @@ class ChessBot():
         self.max_depth = 25
         self.same_score_threshold = 0.001
         self.epsilon = 0.00001
+        self.chance_limit = 0.4 ** 10
         self.meta_data = {'choose_move_time': 0, 'backprop_time': 0, 'unexplored_moves': 0, 'explored_moves': 0, 'wait_slave': 0, 'comms_time': 0,
-            'total_simulations': 0, 'callback_t': 0, 'backprops': 0}
+            'total_simulations': 0, 'callback_t': 0, 'backprops': 0, 'max_depth': 0}
         self.data_out_path = 'data_out.pgn'
 
         self.mp_pool = None
@@ -43,6 +44,7 @@ class ChessBot():
         self.game = Game(self.model)
 
     def best_move(self, board, depth=5, time_limit=10, debug=False, eval_freq=15):
+        self.meta_data['max_depth'] = 0
         self.game.set_position(board)
         if debug:
             print(self.game.root())
@@ -59,7 +61,10 @@ class ChessBot():
         init_depth = depth
         bonus_depth = 0
         if board.halfmove_clock > 15:
-            depth = 51
+            if 101 - board.halfmove_clock > depth:
+                depth = 101 - board.halfmove_clock
+                if depth > self.max_depth:
+                    depth = self.max_depth
             # bonus_depth = 51 - depth
         while True:
             # stale game search
@@ -101,7 +106,7 @@ class ChessBot():
                 formatted_moves.sort(key=lambda x: x['score'], reverse=True)
                 
                 if debug:
-                    print('total simulations:', node.visits, 'depth:', depth)
+                    print('total simulations:', node.visits, 'depth:', depth, 'max depth:', self.meta_data['max_depth'])
                     for m in formatted_moves[:3]:
                         print(m)
 
@@ -125,7 +130,7 @@ class ChessBot():
         best_move = formatted_moves[0]
 
         if debug:
-            print('total simulations:', node.visits, 'depth:', depth)
+            print('total simulations:', node.visits, 'depth:', depth, 'max depth:', self.meta_data['max_depth'])
             for m in formatted_moves[:3]:
                 print(m)
 
@@ -146,10 +151,12 @@ class ChessBot():
 
         return best_move
 
-    def simulate_game(self, depth):
+    def simulate_game(self, depth, chance=1):
         node = self.game.node()
-        if len(node.child_links) == 0 or depth == 0:
+        if len(node.child_links) == 0 or (depth <= 0 and chance < self.chance_limit):
             self.backprop_queue.append(self.game.node_stack[:])
+            if depth < self.meta_data['max_depth']:
+                self.meta_data['max_depth'] = depth
             return node
 
         t1 = time.time()
@@ -160,12 +167,13 @@ class ChessBot():
         # launch slave processes
         for move in other_evals:
             link = node.child_links[move]
-            response = self.mp_pool.apply_async(slave_simulate, args=[self.game.board.copy(), link.node, move, depth-1, id(link), time.time()], callback=self.slave_callback)
+            response = self.mp_pool.apply_async(slave_simulate, args=[self.game.board.copy(), link.node, move, depth-1, id(link), time.time(), chance * link.weight], callback=self.slave_callback)
             self.slave_callbacks[id(link)] = {'response': response, 'node': node, 'move': move, 'node_stack': self.game.node_stack[:]}
             self.available_slaves -= 1
 
+        link = node.child_links[main_eval]
         self.game.push(main_eval, depth-1)
-        sample_node = self.simulate_game(depth-1)
+        sample_node = self.simulate_game(depth-1, chance=chance * link.weight)
         self.game.pop()
         return node
 
@@ -403,7 +411,7 @@ def init_slave(model):
     print("Spawning slave process", os.getpid())
 
 
-def slave_simulate(board, node, move, depth, id, timestamp):
+def slave_simulate(board, node, move, depth, id, timestamp, chance):
     slave.meta_data['total_simulations'] += 1
     slave.game.board = board
     slave.meta_data['comms_time'] += time.time() - timestamp
@@ -411,7 +419,7 @@ def slave_simulate(board, node, move, depth, id, timestamp):
     if node == None:
         node = slave.game.expand()
     slave.game.node_stack = [node]
-    new_node = slave.simulate_game(depth)
+    new_node = slave.simulate_game(depth, chance=chance)
     slave.clear_backprop_queue()
     return new_node, id
 

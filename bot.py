@@ -324,13 +324,14 @@ class ChessBot():
             node.score = 1 - total_scores / total_visits
         self.backprop(node_stack)
 
-    def train_from_board(self, b):
+    def train_from_board(self, b, result=None):
         board = b.copy()
         # save game
         g = pgn.Game.from_board(board)
         with open(self.data_out_path, "a") as f:
             print(g, file=f, end='\n\n')
-        result = board.result(claim_draw=True)
+        if result == None:
+            result = board.result(claim_draw=True)
         winner = 2
         if result == '1-0':
             winner = chess.WHITE

@@ -120,7 +120,7 @@ def get_model(outputs=4184, num_gpus=1):
         compiled_model = multi_gpu_model(model, gpus=num_gpus)
     else:
         compiled_model = model
-    compiled_model.compile(optimizer=optimizers.SGD(lr=0.0001, momentum=0.1), loss='categorical_crossentropy', loss_weights=[1., 1.], metrics=['accuracy'])
+    compiled_model.compile(optimizer=optimizers.SGD(lr=0.00005, momentum=0.1), loss='categorical_crossentropy', loss_weights=[1., 1.], metrics=['accuracy'])
 
     return compiled_model, model
 

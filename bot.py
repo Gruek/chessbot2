@@ -136,13 +136,13 @@ class ChessBot():
 
         best_moves = []
         for m in formatted_moves:
-            if m['lower_bound'] > best_move['lower_bound'] - 0.01:
+            if m['lower_bound'] > best_move['lower_bound'] - 0.005:
                 best_moves.append(m)
             else:
                 break
 
         # if scores are the same choose move based of instinct
-        best_moves.sort(key=lambda x: x['weight'], reverse=True)
+        best_moves.sort(key=lambda x: x['weight'] + x['lower_bound'], reverse=True)
         if best_moves[0] != best_move:
             best_move = best_moves[0]
             if debug:

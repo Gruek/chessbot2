@@ -32,7 +32,7 @@ class Trainer():
             if debug:
                 display(board)
         clear_output()
-        result = board.result()
+        result = board.result(claim_draw=True)
         win = 0.5
         if result == '1-0':
             win = 0 if stockfish_color == chess.WHITE else 1
@@ -87,7 +87,7 @@ class Trainer():
                 display(board)
         if debug:
             clear_output()
-        result = board.result()
+        result = board.result(claim_draw=True)
         win = 0.5
         winner = 0.5
         if result == '1-0':

@@ -28,8 +28,9 @@ class InferenceEngine(Process):
                 else:
                     sleep(self.io_wait_time)
         except (EOFError, BrokenPipeError, TypeError, FileNotFoundError, ConnectionResetError) as e:
-            print('InferenceEngine exit', e)
-            print('Infer time', self.infer_time)
+            # print('InferenceEngine exit', e)
+            # print('Infer time', self.infer_time)
+            pass
 
     def p_predict(self):
         # receive input
@@ -70,7 +71,7 @@ class InferenceEngine(Process):
     def p_fit(self):
         while not self.train_queue.empty():
             inputs, outputs = self.train_queue.get_nowait()
-            self.model.fit(inputs, outputs, verbose=1, batch_size=128)
+            self.model.fit(inputs, outputs, verbose=1, batch_size=256)
         self.p_save_model(self.model_template)
 
     def fit(self, inputs, outputs):

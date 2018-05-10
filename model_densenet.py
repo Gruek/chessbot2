@@ -8,6 +8,7 @@ from keras import regularizers
 from keras import initializers
 from keras import backend as K
 from keras.utils import multi_gpu_model
+from tensorflow.python.client import device_lib
 import os
 
 config = tf.ConfigProto()
@@ -71,6 +72,11 @@ def transition_block(x, reduction, name):
     return x
 
 def get_model(outputs=4184, num_gpus=1):
+    devices = device_lib.list_local_devices()
+    devices = [x.name for x in devices if x.device_type == 'GPU']
+    # print(devices)
+    num_gpus = len(devices)
+    # print(num_gpus)
     # with tf.device('/device:GPU:0' if num_gpus == 1 else '/cpu:0'):
     if os.path.isfile(WEIGHTS_FILE) and False:
         model = models.load_model(WEIGHTS_FILE)

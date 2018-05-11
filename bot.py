@@ -43,7 +43,8 @@ class ChessBot():
                 self.mp_pool = Pool(processes=num_slaves, initializer=init_slave, initargs=(self.model,))
         self.game = Game(self.model)
 
-    def best_move(self, board, depth=5, time_limit=10, debug=False, eval_freq=15):
+    def best_move(self, board, depth=10, time_limit=10, debug=False, eval_freq=15):
+        self.stop = False
         self.meta_data['max_depth'] = 0
         self.game.set_position(board)
         if debug:
@@ -60,7 +61,7 @@ class ChessBot():
         board = self.game.board
         init_depth = depth
         bonus_depth = 0
-        if board.halfmove_clock > 15:
+        if board.halfmove_clock > 20:
             if 101 - board.halfmove_clock > depth:
                 depth = 101 - board.halfmove_clock
                 if depth > self.max_depth:
@@ -89,10 +90,10 @@ class ChessBot():
             self.meta_data['backprop_time'] += time.time() - t1
 
             # out of time
-            if time.time() > cutoff_time:
+            if self.stop or time.time() > cutoff_time or len(node.child_links) == 1:
                 break
 
-            if time.time() > eval_time or len(node.child_links) == 1:
+            if time.time() > eval_time:
                 # end early if confident enough
                 moves = []
                 for move, link in node.child_links.items():
@@ -112,6 +113,7 @@ class ChessBot():
 
                 if len(formatted_moves) == 1 or formatted_moves[0]['visits'] * (formatted_moves[0]['score']) > formatted_moves[1]['visits'] * (formatted_moves[1]['score']) * 20:
                     return formatted_moves[0]
+                eval_freq *= 2
                 eval_time = time.time() + eval_freq
 
         self.sync_slaves()
@@ -409,7 +411,6 @@ class SlaveBot(ChessBot):
 def init_slave(model):
     global slave
     slave = SlaveBot(model)
-    print("Spawning slave process", os.getpid())
 
 
 def slave_simulate(board, node, move, depth, id, timestamp, chance):

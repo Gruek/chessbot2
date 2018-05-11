@@ -104,14 +104,14 @@ class ChessBot():
                 for i, m in enumerate(moves):
                     move = {'move': m[0], 'weight': m[1].weight, 'score': 1 - m[1].node.score, 'visits': m[1].node.visits}
                     formatted_moves.append(move)
-                formatted_moves.sort(key=lambda x: x['score'], reverse=True)
+                formatted_moves.sort(key=lambda x: x['visits'], reverse=True)
                 
                 if debug:
                     print('total simulations:', node.visits, 'depth:', depth, 'max depth:', self.meta_data['max_depth'])
                     for m in formatted_moves[:3]:
                         print(m)
 
-                if len(formatted_moves) == 1 or formatted_moves[0]['visits'] * (formatted_moves[0]['score']) > formatted_moves[1]['visits'] * (formatted_moves[1]['score']) * 20:
+                if len(formatted_moves) == 1 or formatted_moves[0]['visits'] * (formatted_moves[0]['score']) > formatted_moves[1]['visits'] * (formatted_moves[1]['score']) * 30:
                     return formatted_moves[0]
                 eval_freq *= 2
                 eval_time = time.time() + eval_freq

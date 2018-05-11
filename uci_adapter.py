@@ -3,6 +3,7 @@ import chess
 import time
 from threading import Thread
 from bot import ChessBot
+import multiprocessing
 
 class UCIAdapter():
     def __init__(self, chbot):
@@ -94,7 +95,10 @@ class UCIAdapter():
         return []
 
     def go(self, inp):
-        kwargs = {'board': self.board}
+        kwargs = {
+            'board': self.board,
+            'debug': self.debug
+        }
         if 'movetime' in inp:
             kwargs['time_limit'] = int(inp[inp.index('movetime') + 1])
         if 'depth' in inp:
@@ -109,7 +113,7 @@ class UCIAdapter():
 
     def async_search(self, search_options):
         move = self.chbot.best_move(**search_options)
-        out = 'bestmove ' + move['move'] + '\n'
+        out = 'bestmove ' + move['move']
         self.log('out: ' + out)
         print(out, flush=True)
 
@@ -147,5 +151,6 @@ class FakeBot():
         return {'move': moves[0].uci()}
 
 if __name__ == '__main__':
+    multiprocessing.freeze_support()
     uci = UCIAdapter(ChessBot())
     uci.start()

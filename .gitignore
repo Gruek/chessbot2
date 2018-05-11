@@ -1,3 +1,7 @@
 .ipynb_checkpoints
 __pycache__
 data
+build
+dist
+*.spec
+*.log

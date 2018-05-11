@@ -10,6 +10,7 @@ from keras import backend as K
 from keras.utils import multi_gpu_model
 from tensorflow.python.client import device_lib
 import os
+import sys
 
 config = tf.ConfigProto()
 # config.gpu_options.per_process_gpu_memory_fraction = 0.3
@@ -17,8 +18,17 @@ config.gpu_options.allow_growth = True
 # config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
 set_session(tf.Session(config=config))
 
-WEIGHTS_FILE = 'data/model_densenet.h5'
-TEMP_FILE = 'data/model_densenet.temp.h5'
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except AttributeError:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
+WEIGHTS_FILE = resource_path('data/model_densenet.h5')
+TEMP_FILE = resource_path('data/model_densenet.temp.h5')
 # WEIGHTS_FILE = '/data/kru03a/chbot/data/model_densenet.h5'
 # TEMP_FILE = '/data/kru03a/chbot/data/model_densenet.temp.h5'
 WEIGHT_DECAY = 0.000

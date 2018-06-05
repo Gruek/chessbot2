@@ -57,7 +57,6 @@ class ChessBot():
         cutoff_time = time.time() + time_limit
         eval_time = time.time() + eval_freq
 
-        node = self.game.node()
         board = self.game.board
         init_depth = depth
         bonus_depth = 0
@@ -68,6 +67,8 @@ class ChessBot():
                 if depth > self.max_depth:
                     depth = self.max_depth
             # bonus_depth = 51 - depth
+        
+        node = self.game.node()
         while True:
             # stale game search
             # if node.visits > 500 and depth < self.max_depth:
@@ -317,7 +318,7 @@ class ChessBot():
             # node.score = 1 - best_move.score
 
             # best_score_weight = math.log(len(moves))
-            best_score_weight = math.sqrt(len(moves))
+            best_score_weight = math.sqrt(len(moves)) * 2
 
             total_scores += potential_move.score * (potential_move.visits + 1) * best_score_weight
             total_visits += (potential_move.visits + 1) * best_score_weight

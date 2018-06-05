@@ -11,14 +11,14 @@ from multiprocessing import Process, Pool
 import os
 
 class ChessBot():
-    def __init__(self, master=True, num_slaves=40, model=None):
+    def __init__(self, master=True, num_slaves=50, model=None):
         self.move_encoder = MoveEncoder()
         self.explore = 0.20
         self.init_explore = 1.0
         self.max_depth = 25
         self.same_score_threshold = 0.001
         self.epsilon = 0.00001
-        self.chance_limit = 0.4 ** 10
+        self.chance_limit = 0.4 ** 6
         self.meta_data = {'choose_move_time': 0, 'backprop_time': 0, 'unexplored_moves': 0, 'explored_moves': 0, 'wait_slave': 0, 'comms_time': 0,
             'total_simulations': 0, 'callback_t': 0, 'backprops': 0, 'max_depth': 0}
         self.data_out_path = 'data_out.pgn'
@@ -43,7 +43,7 @@ class ChessBot():
                 self.mp_pool = Pool(processes=num_slaves, initializer=init_slave, initargs=(self.model,))
         self.game = Game(self.model)
 
-    def best_move(self, board, depth=10, time_limit=10, debug=False, eval_freq=15):
+    def best_move(self, board, depth=6, time_limit=10, debug=False, eval_freq=15):
         self.stop = False
         self.meta_data['max_depth'] = 0
         self.game.set_position(board)
@@ -61,7 +61,8 @@ class ChessBot():
         board = self.game.board
         init_depth = depth
         bonus_depth = 0
-        if board.halfmove_clock > 20:
+        if board.halfmove_clock > 25:
+            self.game.set_position(self.game.board, use_cache=False)
             if 101 - board.halfmove_clock > depth:
                 depth = 101 - board.halfmove_clock
                 if depth > self.max_depth:
@@ -315,7 +316,8 @@ class ChessBot():
             # node.score = (1 - potential_move.score)
             # node.score = 1 - best_move.score
 
-            best_score_weight = math.log(len(moves))
+            # best_score_weight = math.log(len(moves))
+            best_score_weight = math.sqrt(len(moves))
 
             total_scores += potential_move.score * (potential_move.visits + 1) * best_score_weight
             total_visits += (potential_move.visits + 1) * best_score_weight

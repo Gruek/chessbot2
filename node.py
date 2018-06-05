@@ -16,17 +16,17 @@ class Game():
         self.meta_data = {'inferences': 0, 'infer_time': 0, 'check_result_time': 0, 'move_validation_time': 0,
             'push_time': 0, 'pop_time': 0, 'expand_time': 0, 'input_gen_time': 0}
 
-    def set_position(self, board):
+    def set_position(self, board, use_cache=True):
         self.meta_data['inferences'] = 0
         self.board = board.copy()
         new_node_id = self.node_id(self.board)
 
-        # if self.root() != None and new_node_id[:len(self.root_node_id)] == self.root_node_id:
-        #     new_node = self.root().traverse(new_node_id[len(self.root_node_id):])
-        #     if new_node:
-        #         self.node_stack = [new_node]
-        #         self.root_node_id = new_node_id
-        #         return
+        if self.root() != None and new_node_id[:len(self.root_node_id)] == self.root_node_id and use_cache:
+            new_node = self.root().traverse(new_node_id[len(self.root_node_id):])
+            if new_node:
+                self.node_stack = [new_node]
+                self.root_node_id = new_node_id
+                return
 
         self.root_node_id = new_node_id
         self.node_stack = [self.expand()]

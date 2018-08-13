@@ -160,9 +160,10 @@ class Node():
     def traverse(self, path):
         if len(path) == 0:
             return self
-        link = self.child_links[path[0]]
-        if link and link.node:
-            return link.node.traverse(path[1:])
+        if path[0] in self.child_links:
+            link = self.child_links[path[0]]
+            if link.node:
+                return link.node.traverse(path[1:])
         return None
 
     def set_child(self, move, node):

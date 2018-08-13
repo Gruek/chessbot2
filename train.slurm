@@ -14,7 +14,7 @@ cd /home/kru03a/chbot/chbot2
 
 start=`date +%s`
 
-python train.py
+PATH=$PATH:/home/kru03a/chbot/chbot2 python train.py
 
 end=`date +%s`
 runtime=$((end-start))

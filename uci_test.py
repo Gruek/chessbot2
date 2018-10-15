@@ -3,7 +3,8 @@ import chess
 import time
 import os
 
-engine = chess.uci.popen_engine('./uci_start.sh')
+# engine = chess.uci.popen_engine('./uci_start.sh')
+engine = chess.uci.popen_engine('python ./uci_adapter.py')
 engine.uci()
 engine.debug(True)
 print(engine.name)

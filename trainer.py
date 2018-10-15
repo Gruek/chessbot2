@@ -83,7 +83,7 @@ class Trainer():
             if board.turn == p1_color:
                 move = p1.best_move(board, time_limit=ttt, depth=depth, debug=debug)
             else:
-                move = p2.best_move(board, time_limit=ttt, depth=5, debug=debug)
+                move = p2.best_move(board, time_limit=ttt, depth=7, debug=debug)
             last_score = move['score']
             board.push_uci(move['move'])
             if debug:
@@ -147,6 +147,8 @@ class Trainer():
         while True:
             #play vs sf
             board, win = self.play_vs_stockfish(fish, think_time=think_time, depth=depth, debug=debug)
+            fish.put('quit')
+            fish = Engine(depth=stockfish_depth, param={"Threads": 1})
             if win == 1:
                 wins += 1
             elif win == 0.5:

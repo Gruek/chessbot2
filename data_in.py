@@ -16,22 +16,24 @@ def process_pgn(data_file):
             if g == None:
                 break
             games.append(g)
-    print(len(games))
-    bot.game.set_position(chess.Board())
+    # print(len(games))
+    # bot.game.set_position(chess.Board())
 
     for i, g in enumerate(games):
         if i%1 == 0:
-            result = g.headers["Result"]
             b = g.end().board()
+            # result = g.headers["Result"]
+            result = b.result(claim_draw=True)
             print(result, len(b.move_stack), g.headers["Event"], flush=True)
             bot.train_from_board(b, result)
 
 
 if __name__ == '__main__':
     filelist = list(os.listdir(input_dir))
+    filelist = [x for x in filelist if x.endswith('.pgn')]
     print(len(filelist))
-    filelist.sort(key=lambda x: int(x.split('games')[1].split('.pgn')[0]))
-    start_at = 'games11980000'
+    filelist.sort(key=lambda x: int(x.split('.pgn')[0]))
+    start_at = '15000000'
     start_index = 0
     for i, f in enumerate(filelist):
         if start_at in f:
@@ -40,11 +42,14 @@ if __name__ == '__main__':
     filelist = filelist[start_index:]
     print(len(filelist), start_index)
 
-    for i in range(2):
-        for filename in filelist:
+    for _ in range(1):
+        for i, filename in enumerate(filelist):
             filename = os.path.join(input_dir, filename)
             print(filename)
             process_pgn(filename)
-    
+            if i % 10000 == 0:
+                print('saving')
+                bot.game.set_position(chess.Board())
+
     bot.game.set_position(chess.Board())
     print('done')

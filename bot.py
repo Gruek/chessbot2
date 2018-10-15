@@ -11,7 +11,7 @@ from multiprocessing import Process, Pool
 import os
 
 class ChessBot():
-    def __init__(self, master=True, num_slaves=50, model=None):
+    def __init__(self, master=True, num_slaves=30, model=None):
         self.move_encoder = MoveEncoder()
         self.explore = 0.20
         self.init_explore = 1.0

@@ -9,19 +9,21 @@ from node import Game
 from inference_engine import InferenceEngine
 from multiprocessing import Process, Pool
 import os
+import sys
 
 class ChessBot():
-    def __init__(self, master=True, num_slaves=30, model=None):
+    def __init__(self, master=True, num_slaves=25, model=None, stdout=None):
         self.move_encoder = MoveEncoder()
         self.explore = 0.20
         self.init_explore = 1.0
         self.max_depth = 25
         self.same_score_threshold = 0.001
         self.epsilon = 0.00001
-        self.chance_limit = 0.4 ** 6
+        self.chance_limit = 0.1 ** 5
         self.meta_data = {'choose_move_time': 0, 'backprop_time': 0, 'unexplored_moves': 0, 'explored_moves': 0, 'wait_slave': 0, 'comms_time': 0,
             'total_simulations': 0, 'callback_t': 0, 'backprops': 0, 'max_depth': 0}
         self.data_out_path = 'data_out.pgn'
+        self.stdout = stdout or sys.stdout
 
         self.mp_pool = None
         self.master = master
@@ -43,12 +45,12 @@ class ChessBot():
                 self.mp_pool = Pool(processes=num_slaves, initializer=init_slave, initargs=(self.model,))
         self.game = Game(self.model)
 
-    def best_move(self, board, depth=6, time_limit=10, debug=False, eval_freq=15):
+    def best_move(self, board, depth=6, time_limit=10, debug=False, eval_freq=2, **kwargs):
         self.stop = False
         self.meta_data['max_depth'] = 0
         self.game.set_position(board)
         if debug:
-            print(self.game.root())
+            print(self.game.root(), file=self.stdout, flush=True)
 
         best_move = self.mcts(depth, time_limit, debug, eval_freq)
         return best_move
@@ -61,7 +63,7 @@ class ChessBot():
         init_depth = depth
         bonus_depth = 0
         if board.halfmove_clock > 25:
-            self.game.set_position(self.game.board, use_cache=False)
+            # self.game.set_position(self.game.board, use_cache=False)
             if 101 - board.halfmove_clock > depth:
                 depth = 101 - board.halfmove_clock
                 if depth > self.max_depth:
@@ -109,12 +111,21 @@ class ChessBot():
                 formatted_moves.sort(key=lambda x: x['visits'], reverse=True)
                 
                 if debug:
-                    print('total simulations:', node.visits, 'depth:', depth, 'max depth:', self.meta_data['max_depth'])
+                    print('total simulations:', node.visits, 'depth:', depth, 'max depth:', self.meta_data['max_depth'], file=self.stdout, flush=True)
                     for m in formatted_moves[:3]:
-                        print(m)
+                        print(m, file=self.stdout, flush=True)
 
-                if len(formatted_moves) == 1 or formatted_moves[0]['visits'] * (formatted_moves[0]['score']) > formatted_moves[1]['visits'] * (formatted_moves[1]['score']) * 30:
+                if len(formatted_moves) == 1:
                     return formatted_moves[0]
+                elif formatted_moves[0]['visits'] * (formatted_moves[0]['score']) > formatted_moves[1]['visits'] * (formatted_moves[1]['score']) * 30:
+                    end_early = True
+                    for m in formatted_moves[1:]:
+                        if m['score'] > formatted_moves[0]['score']:
+                            end_early = False
+                            break
+                    if end_early:
+                        return formatted_moves[0]
+                
                 eval_freq *= 2
                 eval_time = time.time() + eval_freq
 
@@ -134,9 +145,9 @@ class ChessBot():
         best_move = formatted_moves[0]
 
         if debug:
-            print('total simulations:', node.visits, 'depth:', depth, 'max depth:', self.meta_data['max_depth'])
+            print('total simulations:', node.visits, 'depth:', depth, 'max depth:', self.meta_data['max_depth'], file=self.stdout, flush=True)
             for m in formatted_moves[:3]:
-                print(m)
+                print(m, file=self.stdout, flush=True)
 
         best_moves = []
         for m in formatted_moves:
@@ -150,8 +161,8 @@ class ChessBot():
         if best_moves[0] != best_move:
             best_move = best_moves[0]
             if debug:
-                print('best move')
-                print(best_move)
+                print('best move', file=self.stdout, flush=True)
+                print(best_move, file=self.stdout, flush=True)
 
         return best_move
 

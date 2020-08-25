@@ -41,10 +41,10 @@ def from_file_to_db(file, db, table):
     conn.close()
     print(games, moves)
 
-data_path = '/data/kru03a/chbot/data'
+data_path = '../data'
 db_path = os.path.join(data_path, 'moves.db')
-f1 = os.path.join(data_path, 'ficsgamesdb_2016_standard2000_nomovetimes_1514497.pgn')
-f2 = os.path.join(data_path, 'ficsgamesdb_201701_standard2000_nomovetimes_1514681.pgn')
+f1 = os.path.join(data_path, 'ficsgamesdb_2016_standard_nomovetimes_1536291.pgn')
+f2 = os.path.join(data_path, 'ficsgamesdb_201701_standard_nomovetimes_1536292.pgn')
 
 from_file_to_db(f1, db_path, 'moves_train')
 from_file_to_db(f2, db_path, 'moves_val')

@@ -6,11 +6,19 @@ from bot import ChessBot
 import multiprocessing
 
 class UCIAdapter():
-    def __init__(self, chbot):
-        self.chbot = chbot
+    def __init__(self):
+        self.log_file_path = 'uci_coms.log'
+        self.stdout = sys.stdout
+        self.log_file = open(self.log_file_path, 'a')
+        sys.stderr = self.log_file
+        self.chbot = ChessBot(stdout=self.log_file)
         self.debug = False
         self.board = chess.Board()
         self.name = 'gruekbot'
+        self.options = {
+            'depth': 6,
+            'ponder': False
+        }
         self.author = 'AK'
         self.IO = {
             'uci': self.uci,
@@ -24,17 +32,16 @@ class UCIAdapter():
             'stop': self.stop,
             'quit': self.quit
         }
-        self.log_file = 'uci_coms.log'
         self.search_thread = None
+        self.join_called = False
         self.quit_received = False
 
-    def log(self, msg):
-        with open(self.log_file, 'a+') as f:
-            f.write(msg + '\n')
+        # initialize chbot
+        self.chbot.game.set_position(self.board)
 
     def recv(self, inp):
         out = []
-        self.log('inp: ' + str(inp))
+        print('inp: ' + str(inp), file=self.log_file, flush=True)
         inp = inp.split(" ")
         if inp[0] in self.IO:
             out_func = self.IO[inp[0]]
@@ -42,7 +49,7 @@ class UCIAdapter():
         else:
             out = ['unknown command: ' + inp[0]]
 
-        self.log('out: ' + str(out))
+        print('out: ' + str(out), file=self.log_file, flush=True)
         return out
 
     def uci(self, inp):
@@ -52,18 +59,34 @@ class UCIAdapter():
             'uciok'
         ]
 
+    def sync_search_thread(self):
+        # sync threads
+        if self.search_thread and self.search_thread.is_alive():
+            self.chbot.stop = True
+            self.join_called = True
+            self.search_thread.join()
+            self.join_called = False
+
     def is_ready(self, inp):
-        self.chbot.game.set_position(self.board)
+        self.sync_search_thread()
         return ['readyok']
 
     def set_debug(self, inp):
         if inp[1] == 'on':
-            self.debug = True
+            self.options['debug'] = True
         else:
-            self.debug = False
+            self.options['debug'] = False
         return []
 
     def setoption(self, inp):
+        try:
+            opt_name = inp[2]
+            opt_val = inp[4]
+            if opt_val.isdigit():
+                opt_val = int(opt_val)
+            self.options[opt_name] = opt_val
+        except IndexError:
+            print('setoption index error:', inp, file=self.log_file, flush=True)
         return []
 
     def register(self, inp):
@@ -95,18 +118,18 @@ class UCIAdapter():
         return []
 
     def go(self, inp):
-        kwargs = {
-            'board': self.board,
-            'debug': self.debug
-        }
+        kwargs = self.options.copy()
+        kwargs['board'] = self.board
+        
         if 'movetime' in inp:
             kwargs['time_limit'] = int(inp[inp.index('movetime') + 1])
         if 'depth' in inp:
             kwargs['depth'] = int(inp[inp.index('depth') + 1])
         if 'infinite' in inp:
             kwargs['time_limit'] = 3600
-        self.log('search_options: ' + str(kwargs))
+        print('search_options: ' + str(kwargs), file=self.log_file, flush=True)
 
+        self.sync_search_thread()
         self.search_thread = Thread(target=self.async_search, args=(kwargs,))
         self.search_thread.start()
         return []
@@ -114,8 +137,16 @@ class UCIAdapter():
     def async_search(self, search_options):
         move = self.chbot.best_move(**search_options)
         out = 'bestmove ' + move['move']
-        self.log('out: ' + out)
+        print('out: ' + out, flush=True, file=self.log_file)
         print(out, flush=True)
+
+        if self.options['ponder'] and self.join_called == False:
+            # ponder about next move
+            search_options['depth'] = search_options['depth'] + 1
+            search_options['time_limit'] = 180
+            self.board.push_uci(move['move'])
+            move = self.chbot.best_move(**search_options)
+            print('ponder bestmove ' + move['move'], flush=True, file=self.log_file)
 
     def stop(self, inp):
         self.chbot.stop = True
@@ -123,6 +154,7 @@ class UCIAdapter():
 
     def quit(self, inp):
         self.quit_received = True
+        self.sync_search_thread()
         return ['bye']
 
     def start(self):
@@ -152,5 +184,5 @@ class FakeBot():
 
 if __name__ == '__main__':
     multiprocessing.freeze_support()
-    uci = UCIAdapter(ChessBot())
+    uci = UCIAdapter()
     uci.start()
